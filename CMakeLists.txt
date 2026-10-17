@@ -40,7 +40,7 @@ add_library(minhook STATIC
 target_include_directories(minhook PUBLIC ${minhook_SOURCE_DIR}/include)
 
 # The game statically imports winmm.dll, so a winmm.dll next to the exe is loaded at startup.
-add_library(KetamineMenu SHARED src/dllmain.cpp src/overlay.cpp src/menu.cpp src/ue.cpp src/features.cpp src/esp.cpp src/resources.rc)
+add_library(KetamineMenu SHARED src/dllmain.cpp src/overlay.cpp src/menu.cpp src/ue.cpp src/features.cpp src/esp.cpp src/lang.cpp src/resources.rc)
 set_target_properties(KetamineMenu PROPERTIES OUTPUT_NAME winmm)
 target_compile_definitions(KetamineMenu PRIVATE KM_VERSION="${PROJECT_VERSION}" WIN32_LEAN_AND_MEAN NOMINMAX)
 target_compile_options(KetamineMenu PRIVATE /W4 /utf-8)

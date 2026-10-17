@@ -1,5 +1,6 @@
 #include "features.h"
 #include "config.h"
+#include "lang.h"
 #include "log.h"
 #include "menu.h"
 #include "text.h"
@@ -1026,7 +1027,9 @@ void GiveItem(const std::string& name, int count)
         int after2 = ItemCount(item);
         km::Log("Give %s x%d: %s via item manager (%d -> %d)", name.c_str(), count, after2 > before ? "OK" : "FAILED",
                 before, after2);
-        menu::Toast(after2 > before ? "+" + std::to_string(after2 - before) + "  " + Pretty(name) : "Couldn't give " + Pretty(name));
+        char failed[160];
+        snprintf(failed, sizeof(failed), lang::T("Couldn't give %s"), Pretty(name).c_str());
+        menu::Toast(after2 > before ? "+" + std::to_string(after2 - before) + "  " + Pretty(name) : failed);
     });
 }
 
@@ -1054,7 +1057,7 @@ void AddMoney(int delta)
 void GiveAllSkins()
 {
     OnGame([](UObject*) {
-        menu::Toast(CheatCall("K2_AddAllSkinsAndCharms") ? "Skins & charms unlocked" : "Skins & charms: cheat unavailable");
+        menu::Toast(lang::T(CheatCall("K2_AddAllSkinsAndCharms") ? "Skins & charms unlocked" : "Skins & charms: cheat unavailable"));
     });
 }
 
@@ -1079,7 +1082,9 @@ void KillNearby()
             if (c && c.Arg(0, false).Arg(1, player).Arg(2, false).Run()) killed++;
         });
         km::Log("Kill nearby: %d enemies within %.0f m", killed, radius / 100);
-        menu::Toast(std::to_string(killed) + (killed == 1 ? " enemy killed" : " enemies killed"));
+        char text[96];
+        snprintf(text, sizeof(text), lang::T(killed == 1 ? "%d enemy killed" : "%d enemies killed"), killed);
+        menu::Toast(text);
     });
 }
 

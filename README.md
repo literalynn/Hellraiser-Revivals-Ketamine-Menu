@@ -6,7 +6,7 @@
 
 <p align="center">
   A clean, in-game trainer for <b>Clive Barker's Hellraiser: Revival</b> (PC).<br>
-  Drop one file in the game folder, press <kbd>Insert</kbd>, done.
+  Drop one file in the game folder, press <kbd>Insert</kbd> or <kbd>F8</kbd>, done.
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@ You only need one file, and nothing to install on your PC (no Visual C++ redistr
 2. **Open the game folder**: in Steam, right-click *Clive Barker's Hellraiser: Revival* → **Manage** → **Browse local files**.
    Then open `Hellraiser` → `Binaries` → `Win64` (the folder that contains `Hellraiser-Win64-Shipping.exe`).
 3. **Copy `winmm.dll` into that `Win64` folder.** Optionally copy `KetamineMenu.ini` too (default settings).
-4. **Start the game**, load a save, and press <kbd>Insert</kbd>.
+4. **Start the game**, load a save, and press <kbd>Insert</kbd> or <kbd>F8</kbd>.
 
 ```
 Clive Barker's Hellraiser - Revival\
@@ -58,7 +58,7 @@ Clive Barker's Hellraiser - Revival\
 `Hellraiser\Binaries\Win64\` folders, so Vortex installs it in the right place, or you can extract it straight into the game folder.
 
 > [!TIP]
-> If <kbd>Insert</kbd> does nothing, open `KetamineMenu.log` next to the DLL: it says exactly what was found and what wasn't.
+> If <kbd>Insert</kbd> / <kbd>F8</kbd> do nothing, open `KetamineMenu.log` next to the DLL: it says exactly what was found and what wasn't.
 > See the [FAQ](#faq--troubleshooting).
 
 ## Features
@@ -135,9 +135,10 @@ out with the reason in a tooltip instead of crashing.
 
 | | |
 |---|---|
-| <kbd>Insert</kbd> | Open / close the menu (rebindable in **Settings**). While it is open the mouse controls the menu and the game ignores your input. |
+| <kbd>Insert</kbd> / <kbd>F8</kbd> | Open / close the menu (both rebindable in **Settings**). While it is open the mouse controls the menu and the game ignores your input. |
 | Hotkeys | Any switch can get its own key in **Settings → Hotkeys**. Hotkeys work with the menu closed and show a small notification. |
 | Hover | Hover any option to see what it does, or why it is unavailable. |
+| Language | English, 简体中文, 日本語, 한국어, Русский, Deutsch, Français, Español, Português (Brasil): follows your Windows language, change it in **Settings**. |
 | UI scale | Follows your screen resolution; adjust it with the − / + buttons in **Settings**. |
 | Footer | Game version, CPU, GPU, RAM, resolution and FPS at a glance, at the bottom of the menu. |
 | Settings file | Everything is saved to `KetamineMenu.ini` next to the DLL. **Settings → Reset configuration** restores the defaults. |
@@ -156,11 +157,11 @@ out with the reason in a tooltip instead of crashing.
 ## FAQ / Troubleshooting
 
 <details>
-<summary><b>Insert does nothing</b></summary>
+<summary><b>Insert / F8 do nothing</b></summary>
 
 - Check that `winmm.dll` is in `Hellraiser\Binaries\Win64` (next to `Hellraiser-Win64-Shipping.exe`), not in the top game folder.
 - Open `KetamineMenu.log` in the same folder. If it doesn't exist, the DLL wasn't loaded: check the folder again and your antivirus.
-- If you rebound the menu key, the footer of the menu (and `KetamineMenu.ini`, `[Menu] Key=`) shows the current one.
+- If you rebound the menu key, the footer of the menu (and `KetamineMenu.ini`, `[Menu] Key=` / `Key2=`) shows the current ones.
 </details>
 
 <details>

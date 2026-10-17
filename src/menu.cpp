@@ -2,6 +2,7 @@
 #include "config.h"
 #include "esp.h"
 #include "features.h"
+#include "lang.h"
 #include "log.h"
 #include "overlay.h"
 #include "text.h"
@@ -15,6 +16,7 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace menu {
 namespace {
@@ -22,8 +24,9 @@ namespace {
 using feat::Toggle;
 using feat::Value;
 using namespace theme;
+using lang::T;
 
-constexpr int kNotBinding = -1, kBindMenu = -2;
+constexpr int kNotBinding = -1, kBindMenu = -2, kBindMenu2 = -3;
 constexpr double kToastLife = 2.2;
 constexpr float kBaseFont = 16.f;
 const char* const kTabs[] = {"Player", "Combat", "Movement", "ESP", "Inventory", "World", "Progress", "Settings"};
@@ -32,6 +35,7 @@ constexpr int kTabCount = IM_ARRAYSIZE(kTabs);
 HMODULE g_module;
 std::atomic<bool> g_open;
 std::atomic<unsigned> g_menuKey{VK_INSERT};
+std::atomic<unsigned> g_menuKey2{VK_F8}; // second menu key: not every keyboard has Insert (0 = none)
 std::atomic<int> g_hotkey[feat::ToggleCount];
 std::atomic<int> g_binding{kNotBinding};
 float g_scale = 0; // 0 = automatic, from the screen height
@@ -59,7 +63,7 @@ void PushToast(std::string text, int state)
 
 std::string KeyName(unsigned vk)
 {
-    if (!vk) return "None";
+    if (!vk) return T("None");
     LONG scan = LONG(MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)) << 16;
     switch (vk) { // navigation keys share scan codes with the numpad: mark them extended
     case VK_INSERT: case VK_DELETE: case VK_HOME: case VK_END: case VK_PRIOR: case VK_NEXT:
@@ -110,6 +114,50 @@ ImFont* LoadFont(int id)
     ImFontConfig cfg;
     cfg.FontDataOwnedByAtlas = false; // the data lives in the DLL image
     return ImGui::GetIO().Fonts->AddFontFromMemoryTTF(data, int(SizeofResource(g_module, res)), kBaseFont, &cfg);
+}
+
+// Read-only view of a Windows font: only the pages ImGui actually reads get loaded.
+void* MapFont(const wchar_t* file, int& size)
+{
+    wchar_t dir[MAX_PATH];
+    GetWindowsDirectoryW(dir, MAX_PATH);
+    std::wstring path = std::wstring(dir) + L"\\Fonts\\" + file;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return nullptr;
+    LARGE_INTEGER bytes{};
+    GetFileSizeEx(f, &bytes);
+    HANDLE map = CreateFileMappingW(f, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    CloseHandle(f);
+    void* view = map ? MapViewOfFile(map, FILE_MAP_READ, 0, 0, 0) : nullptr;
+    if (map) CloseHandle(map);
+    size = int(bytes.QuadPart);
+    return view;
+}
+
+// Inter has no Chinese, Japanese or Korean glyphs: merge the Windows fonts for them into ours, so every language name in
+// Settings and the current translation render. The current language goes first: it wins for the shared ideographs.
+void MergeScriptFonts()
+{
+    int order[] = {lang::Get(), lang::Zh, lang::Ja, lang::Ko};
+    std::vector<const wchar_t*> done;
+    for (int l : order) {
+        const wchar_t* const* files = lang::kLangs[l].fonts;
+        if (!files[0] || std::find(done.begin(), done.end(), files[0]) != done.end()) continue;
+        done.push_back(files[0]);
+        for (int b = 0; b < 2; b++) {
+            ImFont* dst = b ? bold : regular;
+            int size = 0;
+            void* data = MapFont(files[b] ? files[b] : files[0], size);
+            if (!data && b) data = MapFont(files[0], size);
+            if (!data || !dst) continue;
+            ImFontConfig cfg;
+            cfg.MergeMode = true;
+            cfg.DstFont = dst;
+            cfg.FontDataOwnedByAtlas = false; // the mapped view stays for the process lifetime
+            ImGui::GetIO().Fonts->AddFontFromMemoryTTF(data, size, kBaseFont, &cfg);
+        }
+        km::Log("Fonts: merged %ls", files[0]);
+    }
 }
 
 void ApplyTheme(float scale)
@@ -221,7 +269,7 @@ void Tooltip(ImVec2 rowMin, ImVec2 rowMax, const std::string& text)
         ImGui::IsMouseHoveringRect(rowMin, rowMax)) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 22);
-        ImGui::TextUnformatted(text.c_str());
+        ImGui::TextUnformatted(T(text.c_str()));
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
@@ -233,7 +281,7 @@ void Section(const char* title)
     ImGui::Dummy({0, 6 * s});
     ImGui::PushFont(bold, kBaseFont * 0.78f);
     ImGui::PushStyleColor(ImGuiCol_Text, Muted);
-    ImGui::TextUnformatted(title);
+    ImGui::TextUnformatted(T(title));
     ImGui::PopStyleColor();
     ImGui::PopFont();
     ImVec2 p = ImGui::GetCursorScreenPos();
@@ -265,7 +313,7 @@ void ToggleRow(Toggle t, const feat::Snapshot& snap)
     RowHover(rowMin, avail);
     ImGui::BeginDisabled(!why.empty());
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(info.label);
+    ImGui::TextUnformatted(T(info.label));
     if (int key = g_hotkey[t]) {
         ImGui::SameLine();
         KeyBadge(KeyName(unsigned(key)).c_str());
@@ -294,12 +342,13 @@ void SliderRow(Value v, const char* label, const char* fmt, const feat::Snapshot
     RowHover(rowMin, avail);
     ImGui::BeginDisabled(!why.empty());
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
+    ImGui::TextUnformatted(T(label));
     ImGui::SameLine(x0 + avail * 0.40f);
+    resetLabel = T(resetLabel);
     ImGui::SetNextItemWidth(avail * 0.60f - ButtonWidth(resetLabel) - ImGui::GetStyle().ItemSpacing.x);
     float lo = v == feat::Fov ? 50.f : info.min; // FOV: 0 = game default, below any usable value
     float val = feat::g_value[v];
-    const char* shown = v == feat::Fov && val < lo ? "Game default" : fmt;
+    const char* shown = v == feat::Fov && val < lo ? T("Game default") : fmt;
     if (ImGui::SliderFloat("##v", &val, lo, info.max, shown, ImGuiSliderFlags_AlwaysClamp)) feat::g_value[v] = val;
     if (ImGui::IsItemDeactivatedAfterEdit()) feat::Save();
     ImGui::SameLine();
@@ -316,7 +365,7 @@ void SliderRow(Value v, const char* label, const char* fmt, const feat::Snapshot
 void Hint(const char* text)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, Muted);
-    ImGui::TextWrapped("%s", text);
+    ImGui::TextWrapped("%s", T(text));
     ImGui::PopStyleColor();
 }
 
@@ -324,7 +373,7 @@ void Hint(const char* text)
 float ControlColumn(const char* label, float avail, float x0)
 {
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label);
+    ImGui::TextUnformatted(T(label));
     ImGui::SameLine(x0 + avail * 0.40f);
     return avail * 0.60f;
 }
@@ -341,7 +390,7 @@ void TabPlayer(const feat::Snapshot& s)
         RowHover(rowMin, avail);
         ImGui::BeginDisabled(!s.player || s.maxHealth <= 0);
         float w = ControlColumn("Health", avail, x0);
-        ImGui::SetNextItemWidth(w - ButtonWidth("Heal") - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::SetNextItemWidth(w - ButtonWidth(T("Heal")) - ImGui::GetStyle().ItemSpacing.x);
         float hp = editing >= 0 ? editing : s.health;
         char fmt[32];
         snprintf(fmt, sizeof(fmt), s.maxHealth > 0 ? "%%.0f / %.0f" : "-", s.maxHealth);
@@ -350,9 +399,9 @@ void TabPlayer(const feat::Snapshot& s)
             feat::SetHealth(editing);
             editing = -1;
         }
-        ImGui::SetItemTooltip("Drag to set your health.");
+        ImGui::SetItemTooltip("%s", T("Drag to set your health."));
         ImGui::SameLine();
-        if (ImGui::Button("Heal")) feat::Heal();
+        if (ImGui::Button(T("Heal"))) feat::Heal();
         ImGui::EndDisabled();
     }
     Section("SURVIVAL");
@@ -376,9 +425,9 @@ void TabCombat(const feat::Snapshot& s)
         char text[32];
         snprintf(text, sizeof(text), s.maxSuffering > 0 ? "%.0f / %.0f" : "-", s.suffering, s.maxSuffering);
         ImGui::ProgressBar(s.maxSuffering > 0 ? s.suffering / s.maxSuffering : 0.f,
-                           {w - ButtonWidth("Fill") - ImGui::GetStyle().ItemSpacing.x, 0}, text);
+                           {w - ButtonWidth(T("Fill")) - ImGui::GetStyle().ItemSpacing.x, 0}, text);
         ImGui::SameLine();
-        if (ImGui::Button("Fill")) feat::FillSuffering();
+        if (ImGui::Button(T("Fill"))) feat::FillSuffering();
         ImGui::EndDisabled();
     }
     for (Toggle t : {feat::NoSufferingCost, feat::NoPowerCooldown}) ToggleRow(t, s);
@@ -396,29 +445,29 @@ void TabMovement(const feat::Snapshot& s)
         ImGui::PushID(i);
         RowHover(ImGui::GetCursorScreenPos(), ImGui::GetContentRegionAvail().x);
         ImGui::AlignTextToFramePadding();
-        ImGui::Text("Slot %d", i + 1);
+        ImGui::Text(T("Slot %d"), i + 1);
         ImGui::SameLine(0, 12 * S());
-        ImGui::TextDisabled("%s", s.slots[i].empty() ? "empty" : s.slots[i].c_str());
-        SameLineRight(ButtonWidth("Save") + ImGui::GetStyle().ItemSpacing.x + ButtonWidth("Go"));
+        ImGui::TextDisabled("%s", s.slots[i].empty() ? T("empty") : s.slots[i].c_str());
+        SameLineRight(ButtonWidth(T("Save")) + ImGui::GetStyle().ItemSpacing.x + ButtonWidth(T("Go")));
         ImGui::BeginDisabled(!s.player);
-        if (ImGui::Button("Save")) feat::SaveSlot(i);
+        if (ImGui::Button(T("Save"))) feat::SaveSlot(i);
         ImGui::SameLine();
         ImGui::BeginDisabled(s.slots[i] != s.map);
-        if (ImGui::Button("Go")) feat::LoadSlot(i);
+        if (ImGui::Button(T("Go"))) feat::LoadSlot(i);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::PopID();
     }
 
     Section("LEVEL CHECKPOINTS");
-    if (s.checkpoints.empty()) ImGui::TextDisabled(s.player ? "No checkpoint in this level." : "Load a save first.");
+    if (s.checkpoints.empty()) ImGui::TextDisabled("%s", T(s.player ? "No checkpoint in this level." : "Load a save first."));
     for (const feat::Named& cp : s.checkpoints) {
         ImGui::PushID(int(cp.fname));
         RowHover(ImGui::GetCursorScreenPos(), ImGui::GetContentRegionAvail().x);
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(cp.name.c_str());
-        SameLineRight(ButtonWidth("Go"));
-        if (ImGui::Button("Go")) feat::TeleportCheckpoint(cp.fname);
+        SameLineRight(ButtonWidth(T("Go")));
+        if (ImGui::Button(T("Go"))) feat::TeleportCheckpoint(cp.fname);
         ImGui::PopID();
     }
 }
@@ -451,7 +500,7 @@ void TabInventory(const feat::Snapshot& s)
         RowHover(rowMin, avail);
         ImGui::BeginDisabled(!s.player);
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("Money");
+        ImGui::TextUnformatted(T("Money"));
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, Pink);
         ImGui::PushFont(bold, 0);
@@ -473,23 +522,23 @@ void TabInventory(const feat::Snapshot& s)
     Section("GIVE ITEMS");
     Hint("Key items can break scripted sequences: save before giving them.");
     float qtyW = ImGui::GetFontSize() * 4;
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - qtyW - ImGui::CalcTextSize("Quantity").x - ImGui::GetStyle().ItemSpacing.x * 2);
-    ImGui::InputTextWithHint("##filter", "Search an item...", filter, sizeof(filter));
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - qtyW - ImGui::CalcTextSize(T("Quantity")).x - ImGui::GetStyle().ItemSpacing.x * 2);
+    ImGui::InputTextWithHint("##filter", T("Search an item..."), filter, sizeof(filter));
     ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("Quantity");
+    ImGui::TextDisabled("%s", T("Quantity"));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(qtyW);
     ImGui::InputInt("##qty", &giveCount, 0, 0);
     giveCount = std::clamp(giveCount, 1, 9999);
-    if (s.items.empty()) ImGui::TextDisabled(s.player ? "Loading item list..." : "Load a save first.");
+    if (s.items.empty()) ImGui::TextDisabled("%s", T(s.player ? "Loading item list..." : "Load a save first."));
     auto lower = [](std::string t) {
         for (char& c : t) c = char(std::tolower(uint8_t(c)));
         return t;
     };
     std::string needle = lower(filter);
     for (const auto& [category, list] : s.items) {
-        if (!ImGui::CollapsingHeader(category.c_str())) continue;
+        if (!ImGui::CollapsingHeader((std::string(T(category.c_str())) + "###" + category).c_str())) continue;
         for (const feat::Named& item : list) {
             std::string label = Pretty(item.name);
             if (!needle.empty() && lower(label).find(needle) == std::string::npos) continue;
@@ -497,18 +546,18 @@ void TabInventory(const feat::Snapshot& s)
             RowHover(ImGui::GetCursorScreenPos(), ImGui::GetContentRegionAvail().x);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(label.c_str());
-            SameLineRight(ButtonWidth("Give"));
-            if (ImGui::Button("Give")) feat::GiveItem(item.name, giveCount);
+            SameLineRight(ButtonWidth(T("Give")));
+            if (ImGui::Button(T("Give"))) feat::GiveItem(item.name, giveCount);
             ImGui::PopID();
         }
     }
 
     Section("COSMETICS");
     ImGui::BeginDisabled(!s.player || !s.cheatManager);
-    if (ImGui::Button("Unlock weapon skins & charms")) feat::GiveAllSkins();
+    if (ImGui::Button(T("Unlock weapon skins & charms"))) feat::GiveAllSkins();
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::TextDisabled("Check them in the weapon customisation screen.");
+    ImGui::TextDisabled("%s", T("Check them in the weapon customisation screen."));
 }
 
 void TabWorld(const feat::Snapshot& s)
@@ -519,7 +568,7 @@ void TabWorld(const feat::Snapshot& s)
     ToggleRow(feat::FreezeAI, s);
     SliderRow(feat::KillRadius, "Kill radius", "%.0f m", s, "Range of the button below.");
     ImGui::BeginDisabled(!s.player);
-    if (ImGui::Button("Kill enemies nearby")) feat::KillNearby();
+    if (ImGui::Button(T("Kill enemies nearby"))) feat::KillNearby();
     ImGui::EndDisabled();
     Section("CAMERA & HUD");
     SliderRow(feat::Fov, "Field of view", "%.0f°", s, "Locks the camera field of view. Default gives control back to the game.",
@@ -531,7 +580,7 @@ void TabProgress(const feat::Snapshot& s)
 {
     { // warning card
         float sc = S(), w = ImGui::GetContentRegionAvail().x;
-        const char* warn = "Save your game before changing objectives: skipping steps can break scripted sequences.";
+        const char* warn = T("Save your game before changing objectives: skipping steps can break scripted sequences.");
         ImVec2 p = ImGui::GetCursorScreenPos();
         ImVec2 size = ImGui::CalcTextSize(warn, nullptr, false, w - 30 * sc);
         ImVec2 b{p.x + w, p.y + size.y + 20 * sc};
@@ -547,7 +596,7 @@ void TabProgress(const feat::Snapshot& s)
     }
 
     Section("CURRENT OBJECTIVES");
-    if (s.objectivesActive.empty()) ImGui::TextDisabled(s.player ? "No active objective found." : "Load a save first.");
+    if (s.objectivesActive.empty()) ImGui::TextDisabled("%s", T(s.player ? "No active objective found." : "Load a save first."));
     for (const feat::Named& o : s.objectivesActive) {
         ImGui::PushID(o.name.c_str());
         RowHover(ImGui::GetCursorScreenPos(), ImGui::GetContentRegionAvail().x);
@@ -556,12 +605,12 @@ void TabProgress(const feat::Snapshot& s)
         if (tracked) ImGui::PushStyleColor(ImGuiCol_Text, Pink);
         ImGui::TextUnformatted(Pretty(o.name).c_str());
         if (tracked) ImGui::PopStyleColor();
-        ImGui::SetItemTooltip("%s%s", o.name.c_str(), tracked ? "  (tracked)" : "");
-        SameLineRight(ButtonWidth("Complete"));
-        if (ImGui::Button("Complete")) feat::CompleteObjective(o.fname);
+        ImGui::SetItemTooltip("%s%s%s", o.name.c_str(), tracked ? "  " : "", tracked ? T("(tracked)") : "");
+        SameLineRight(ButtonWidth(T("Complete")));
+        if (ImGui::Button(T("Complete"))) feat::CompleteObjective(o.fname);
         ImGui::PopID();
     }
-    if (!s.objectivesDone.empty() && ImGui::CollapsingHeader("Completed objectives")) {
+    if (!s.objectivesDone.empty() && ImGui::CollapsingHeader((std::string(T("Completed objectives")) + "###done").c_str())) {
         for (const feat::Named& o : s.objectivesDone) {
             ImGui::TextDisabled("%s", Pretty(o.name).c_str());
             ImGui::SetItemTooltip("%s", o.name.c_str());
@@ -572,17 +621,17 @@ void TabProgress(const feat::Snapshot& s)
     static int level = 0;
     ImGui::BeginDisabled(s.shopLevel < 0);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Shop level");
+    ImGui::TextUnformatted(T("Shop level"));
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Text, Pink);
     ImGui::Text("%s", s.shopLevel >= 0 ? std::to_string(s.shopLevel).c_str() : "-");
     ImGui::PopStyleColor();
-    SameLineRight(ImGui::GetFontSize() * 7 + ImGui::GetStyle().ItemSpacing.x + ButtonWidth("Set"));
+    SameLineRight(ImGui::GetFontSize() * 7 + ImGui::GetStyle().ItemSpacing.x + ButtonWidth(T("Set")));
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7);
     ImGui::InputInt("##level", &level);
     level = std::clamp(level, 0, 99);
     ImGui::SameLine();
-    if (ImGui::Button("Set")) feat::SetShopLevel(level);
+    if (ImGui::Button(T("Set"))) feat::SetShopLevel(level);
     ImGui::EndDisabled();
 }
 
@@ -590,7 +639,7 @@ void BindButton(const char* id, int target, unsigned key)
 {
     ImGui::PushID(id);
     bool waiting = g_binding == target;
-    std::string label = waiting ? "Press a key..." : KeyName(key);
+    std::string label = waiting ? T("Press a key...") : KeyName(key);
     if (waiting) ImGui::PushStyleColor(ImGuiCol_Button, Alpha(Violet, 0.4f));
     if (ImGui::Button(label.c_str(), {ImGui::GetFontSize() * 8, 0})) g_binding = waiting ? kNotBinding : target;
     if (waiting) ImGui::PopStyleColor();
@@ -601,10 +650,23 @@ void TabSettings(const feat::Snapshot&)
 {
     Section("MENU");
     float avail = ImGui::GetContentRegionAvail().x, x0 = ImGui::GetCursorPosX();
-    ControlColumn("Menu key", avail, x0);
+    ControlColumn("Menu keys", avail, x0);
     BindButton("menukey", kBindMenu, g_menuKey);
     ImGui::SameLine();
-    ImGui::TextDisabled("Esc cancels");
+    BindButton("menukey2", kBindMenu2, g_menuKey2);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", T("Esc cancels"));
+
+    ControlColumn("Language", avail, x0);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
+    if (ImGui::BeginCombo("##lang", lang::kLangs[lang::Get()].name)) {
+        for (int i = 0; i < lang::Count; i++)
+            if (ImGui::Selectable(lang::kLangs[i].name, i == lang::Get())) {
+                lang::Set(i);
+                cfg::SetString("Menu", "Language", lang::kLangs[i].code);
+            }
+        ImGui::EndCombo();
+    }
 
     // Buttons rather than a slider: dragging a slider that rescales the window under the mouse runs away.
     ControlColumn("UI scale", avail, x0);
@@ -621,7 +683,7 @@ void TabSettings(const feat::Snapshot&)
     if (ImGui::Button(" + ")) setScale(current + 0.1f);
     ImGui::SameLine();
     ImGui::BeginDisabled(g_scale <= 0);
-    if (ImGui::Button("Auto")) setScale(0);
+    if (ImGui::Button(T("Auto"))) setScale(0);
     ImGui::EndDisabled();
 
     Section("HOTKEYS");
@@ -633,7 +695,7 @@ void TabSettings(const feat::Snapshot&)
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();
-            ImGui::Text("%s%s", t > feat::Esp ? "ESP  ·  " : "", feat::kToggles[t].label);
+            ImGui::Text("%s%s%s", t > feat::Esp ? T("ESP") : "", t > feat::Esp ? "  ·  " : "", T(feat::kToggles[t].label));
             ImGui::TableNextColumn();
             BindButton(feat::kToggles[t].key, t, unsigned(g_hotkey[t].load()));
         }
@@ -641,22 +703,24 @@ void TabSettings(const feat::Snapshot&)
     }
 
     Section("CONFIGURATION");
-    if (ImGui::Button("Reset configuration")) ImGui::OpenPopup("Reset?");
+    if (ImGui::Button(T("Reset configuration"))) ImGui::OpenPopup("###reset");
     ImGui::SameLine();
-    ImGui::TextDisabled("KetamineMenu.ini and KetamineMenu.log sit next to the DLL.");
-    if (ImGui::BeginPopupModal("Reset?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("Turn every option off and forget hotkeys, positions and settings?");
-        if (ImGui::Button("Reset")) {
+    ImGui::TextDisabled("%s", T("KetamineMenu.ini and KetamineMenu.log sit next to the DLL."));
+    if (ImGui::BeginPopupModal((std::string(T("Reset?")) + "###reset").c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(T("Turn every option off and forget hotkeys, positions and settings?"));
+        if (ImGui::Button(T("Reset"))) {
             cfg::Reset();
+            cfg::SetString("Menu", "Language", lang::kLangs[lang::Get()].code); // keep the language the menu shows
             for (int t = 0; t < feat::ToggleCount; t++) feat::g_on[t] = feat::kToggles[t].def;
             for (int v = 0; v < feat::ValueCount; v++) feat::g_value[v] = feat::kValues[v].def;
             for (auto& k : g_hotkey) k = 0;
             g_menuKey = VK_INSERT;
+            g_menuKey2 = VK_F8;
             g_scale = 0;
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        if (ImGui::Button(T("Cancel"))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
 }
@@ -673,7 +737,7 @@ void DrawToasts()
     for (const Toast& t : g_toasts) {
         double age = now - t.start;
         float alpha = float(std::clamp(std::min(age / 0.15, (kToastLife - age) / 0.35), 0.0, 1.0));
-        const char* state = t.state < 0 ? "" : t.state ? "ON" : "OFF";
+        const char* state = t.state < 0 ? "" : T(t.state ? "ON" : "OFF");
         ImVec2 ts = regular->CalcTextSizeA(size, FLT_MAX, 0, t.text.c_str()), ss = bold->CalcTextSizeA(size, FLT_MAX, 0, state);
         float w = pad * 2 + 4 * s + ts.x + (t.state < 0 ? 0 : ss.x + 12 * s), h = ts.y + pad * 1.4f;
         ImVec2 a{right - w, y}, b{right, y + h};
@@ -699,7 +763,7 @@ void Header(const feat::Snapshot& snap)
     ImGui::TextDisabled("v%s  ·  %s", KM_VERSION, overlay::ApiName());
 
     // Status pill on the right of the title.
-    const char* status = !snap.reflection ? "Engine not hooked" : snap.player ? "Player found" : "Load a save";
+    const char* status = T(!snap.reflection ? "Engine not hooked" : snap.player ? "Player found" : "Load a save");
     float size = kBaseFont * 0.85f * s;
     ImVec2 ts = regular->CalcTextSizeA(size, FLT_MAX, 0, status);
     float h = ts.y + 12 * s, w = ts.x + 30 * s;
@@ -730,8 +794,9 @@ void Sidebar()
         if (active || hovered)
             dl->AddRectFilled(p, {p.x + w, p.y + h}, Raw(active ? Alpha(Violet, 0.16f) : Panel2), 7 * s);
         if (active) dl->AddRectFilled({p.x, p.y + h * 0.25f}, {p.x + 3 * s, p.y + h * 0.75f}, Raw(Violet), 2 * s);
-        ImVec2 ts = ImGui::CalcTextSize(kTabs[i]);
-        dl->AddText(active ? bold : regular, kBaseFont * s, {p.x + 14 * s, p.y + (h - ts.y) * 0.5f}, Raw(active ? Text : Muted), kTabs[i]);
+        const char* name = T(kTabs[i]);
+        ImVec2 ts = ImGui::CalcTextSize(name);
+        dl->AddText(active ? bold : regular, kBaseFont * s, {p.x + 14 * s, p.y + (h - ts.y) * 0.5f}, Raw(active ? Text : Muted), name);
     }
     ImGui::PopStyleVar();
     ImGui::EndChild();
@@ -755,7 +820,10 @@ void Footer()
     const std::pair<const char*, std::string> items[] = {
         {"GAME", g_game}, {"CPU", g_cpu}, {"GPU", gpu}, {"RAM", g_ram}, {"DISPLAY", display}, {"FPS", fps}};
 
-    std::string hint = KeyName(g_menuKey) + " to close";
+    std::string keys = KeyName(g_menuKey) + (g_menuKey2 ? " / " + KeyName(g_menuKey2) : "");
+    char hintBuf[128];
+    snprintf(hintBuf, sizeof(hintBuf), T("%s to close"), keys.c_str());
+    std::string hint = hintBuf;
     ImVec2 hs = regular->CalcTextSizeA(size, FLT_MAX, 0, hint.c_str());
     float x = p.x, right = p.x + avail - hs.x - 20 * s, labelY = p.y + (size - labelSize) * 0.72f; // baseline-ish alignment with the values
     dl->PushClipRect(p, {right, p.y + size * 2}, true);
@@ -814,10 +882,16 @@ void Init(void* dllModule, const std::string& gameVersion)
     g_game = gameVersion.substr(0, gameVersion.find('_')); // "1.0.1.227219_HellraiserGame_Shipping..."
     if (g_game.empty() && GetEnvironmentVariableA("KM_PREVIEW", nullptr, 0)) g_game = "1.1.1.227384"; // test host
     g_menuKey = unsigned(cfg::GetInt("Menu", "Key", VK_INSERT));
+    g_menuKey2 = unsigned(cfg::GetInt("Menu", "Key2", VK_F8));
+    int language = lang::FromCode(cfg::GetString("Menu", "Language").c_str());
+    lang::Set(language >= 0 ? language : lang::FromSystem()); // first run: the Windows display language
     g_scale = cfg::GetFloat("Menu", "Scale", 0);
     if (g_scale > 0) g_scale = std::clamp(g_scale, 0.7f, 2.5f);
     g_tab = std::clamp(cfg::GetInt("Menu", "Tab", 0), 0, kTabCount - 1);
-    for (int t = 0; t < feat::ToggleCount; t++) g_hotkey[t] = cfg::GetInt("Hotkeys", feat::kToggles[t].key, 0);
+    for (int t = 0; t < feat::ToggleCount; t++) {
+        g_hotkey[t] = cfg::GetInt("Hotkeys", feat::kToggles[t].key, 0);
+        if (g_hotkey[t] == int(g_menuKey2)) g_menuKey2 = 0; // F8 already bound to a cheat before 0.4.8: the cheat keeps it
+    }
     ReadHardware();
     feat::Init();
 }
@@ -831,6 +905,7 @@ void SetupImGui()
         regular = ImGui::GetIO().Fonts->AddFontDefault();
     }
     if (!bold) bold = regular;
+    MergeScriptFonts();
 }
 
 void Draw()
@@ -869,13 +944,16 @@ bool OnKeyDown(unsigned vk)
                 g_menuKey = vk;
                 cfg::SetInt("Menu", "Key", int(vk));
             }
+        } else if (target == kBindMenu2) {
+            g_menuKey2 = clear ? 0 : vk;
+            cfg::SetInt("Menu", "Key2", int(g_menuKey2.load()));
         } else {
             g_hotkey[target] = clear ? 0 : int(vk);
             cfg::SetInt("Hotkeys", feat::kToggles[target].key, g_hotkey[target]);
         }
         return true;
     }
-    if (vk == g_menuKey) {
+    if (vk == g_menuKey || (g_menuKey2 && vk == g_menuKey2)) {
         bool open = !g_open;
         g_open = open;
         km::Log("Menu %s%s", open ? "opened" : "closed", overlay::Drawing() ? "" : " (overlay not drawing, see the DX lines)"); // a crash right after this line points at the overlay
@@ -888,7 +966,7 @@ bool OnKeyDown(unsigned vk)
         bool on = !feat::g_on[t];
         feat::g_on[t] = on;
         feat::Save();
-        PushToast(feat::kToggles[t].label, on ? 1 : 0);
+        PushToast(T(feat::kToggles[t].label), on ? 1 : 0);
         return true;
     }
     return false;
