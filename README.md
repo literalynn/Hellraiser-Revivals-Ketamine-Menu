@@ -2,6 +2,18 @@
   <img src="docs/banner.png" alt="Hellraiser Revival's Ketamine Menu over the game's Lament Configuration" width="100%">
 </p>
 
+<p align="center">
+  <b>English</b> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.ru.md">Русский</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.fr.md">Français</a> ·
+  <a href="README.es.md">Español</a> ·
+  <a href="README.pt-BR.md">Português (Brasil)</a>
+</p>
+
 <h1 align="center">Hellraiser Revival's Ketamine Menu</h1>
 
 <p align="center">
@@ -228,7 +240,7 @@ Pushing a `v*` tag builds the release zip automatically.
 
 - [Dear ImGui](https://github.com/ocornut/imgui) (MIT) and [MinHook](https://github.com/TsudaKageyu/minhook) (BSD-2-Clause)
 - [Dumper-7](https://github.com/Encryqed/Dumper-7), used to study the game's classes
-- [Inter](https://github.com/rsms/inter) font (SIL Open Font License 1.1)
+- [Inter](https://github.com/rsms/inter) font (SIL Open Font License 1.1); Chinese, Japanese and Korean use the Windows fonts
 
 ## Disclaimer
 
