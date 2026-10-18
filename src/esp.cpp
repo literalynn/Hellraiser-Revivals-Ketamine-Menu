@@ -20,7 +20,17 @@ constexpr double kDeg = 3.14159265358979 / 180.0;
 struct View {
     Vec3 loc, fwd, right, up;
     float focal = 0, cx = 0, cy = 0;
+    double paniniD = 0, paniniS = 0, fit = 1;
 };
+
+// Unreal's Panini projection (PaniniProjection.usf): a point on the z = 1 plane -> where the post-process moves it.
+void Panini(double& x, double& y, double d, double s)
+{
+    double inv = 1 / std::sqrt(1 + x * x), sinPhi = x * inv, tanTheta = y * inv, cosPhi = std::sqrt(1 - sinPhi * sinPhi);
+    double k = (d + 1) / (d + cosPhi);
+    x = k * sinPhi;
+    y = k * (tanTheta + (tanTheta / cosPhi - tanTheta) * s);
+}
 
 double Dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 Vec3 Sub(const Vec3& a, const Vec3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
@@ -45,6 +55,13 @@ bool ReadView(const feat::EspFrame& f, View& v)
     float t = std::tan(float(fov * 0.5 * kDeg));
     bool across = f.fovAxis == 1 || (f.fovAxis == 2 && ds.x >= ds.y);
     v.focal = f.aspect > 0 ? std::min(ds.x, ds.y * f.aspect) * 0.5f / t : (across ? v.cx : v.cy) / t;
+    if (f.paniniD > 0) { // the engine then scales the result so the left and right edges stay on the edges
+        v.paniniD = f.paniniD;
+        v.paniniS = f.paniniS;
+        double ex = v.cx / v.focal, ey = 0;
+        Panini(ex, ey, v.paniniD, v.paniniS);
+        v.fit = v.cx / v.focal / ex;
+    }
     return true;
 }
 
@@ -55,7 +72,9 @@ bool Project(const View& v, const Vec3& w, ImVec2& out, double* depth = nullptr)
     double x = Dot(d, v.fwd);
     if (depth) *depth = x;
     if (x < 1) return false;
-    out = {float(v.cx + Dot(d, v.right) * v.focal / x), float(v.cy - Dot(d, v.up) * v.focal / x)};
+    double px = Dot(d, v.right) / x, py = Dot(d, v.up) / x;
+    if (v.paniniD > 0) Panini(px, py, v.paniniD, v.paniniS);
+    out = {float(v.cx + px * v.fit * v.focal), float(v.cy - py * v.fit * v.focal)};
     return true;
 }
 
@@ -193,7 +212,9 @@ void Draw()
     float s = ImGui::GetStyle().FontScaleMain;
 
     if (circle) { // the aim FOV: enemies whose head is inside the circle can be targeted
-        float r = v.focal * std::tan(float(feat::g_value[feat::AimFov] * kDeg));
+        double rx = std::tan(feat::g_value[feat::AimFov] * kDeg), ry = 0;
+        if (v.paniniD > 0) Panini(rx, ry, v.paniniD, v.paniniS);
+        float r = float(rx * v.fit * v.focal);
         dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Black, 0.5f)), 96, 3.f * s);
         dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Violet, 0.85f)), 96, 1.3f * s);
     }

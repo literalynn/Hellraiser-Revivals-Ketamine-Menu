@@ -89,6 +89,7 @@ struct EspFrame {
     float fov = 0;
     uint8_t fovAxis = 1; // EAspectRatioAxisConstraint: 0 = fov is vertical, 1 = horizontal, 2 = along the longer side
     float aspect = 0;    // > 0: the picture is letterboxed to this aspect ratio (fov horizontal within it)
+    float paniniD = 0, paniniS = 0; // Panini projection (r.LensDistortion.Panini.D / .S): pulls the edges inwards
     std::vector<EspEnemy> enemies;
     std::vector<EspThing> things;
 };

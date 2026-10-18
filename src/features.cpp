@@ -87,6 +87,15 @@ constexpr uint8_t SlateHidden = 2, SlateCollapsed = 1;
 std::mutex g_snapMutex;
 Snapshot g_snap;
 
+// A give that dropped items: copies beyond the asked amount are removed, also those the game spawns a moment later.
+struct DropWatch {
+    UObject* item;
+    std::string name;
+    std::vector<UObject*> lying, kept; // pickups there before the give / the ones we leave on the ground
+    int keep, removed = 0;
+    uint64_t until;
+};
+
 // Game-thread state.
 struct State {
     Weak pc, player, attrs, cmc, cheat, objectives;
@@ -97,6 +106,9 @@ struct State {
     bool aimHooked = false, aimFailed = false;
     uint8_t fovAxis = 255; // unknown until read (logged when it changes)
     uint64_t fovAxisAt = 0;
+    float paniniD = -1, paniniS = -1;
+    std::vector<DropWatch> dropWatch;
+    uint64_t dropAt = 0;
     std::map<std::string, Weak> cdo;
     std::map<std::string, Weak> items;
     std::vector<Weak> enemies;
@@ -335,6 +347,17 @@ std::vector<UObject*> Pickables(UObject* item)
         return true;
     });
     return out;
+}
+
+void TrimDrops(DropWatch& w)
+{
+    for (UObject* p : Pickables(w.item)) {
+        if (std::find(w.lying.begin(), w.lying.end(), p) != w.lying.end() ||
+            std::find(w.kept.begin(), w.kept.end(), p) != w.kept.end())
+            continue;
+        if (int(w.kept.size()) < w.keep) w.kept.push_back(p);
+        else if (Call(p, "K2_DestroyActor").Run()) w.removed++;
+    }
 }
 
 void RefreshEnemies(uint64_t now)
@@ -627,6 +650,15 @@ bool ReadPov(UObject* pc, Vec& loc, Vec& rot, float& fov, float* aspect = nullpt
     return fov > 5 && fov < 170;
 }
 
+// A console variable's value (0 when it doesn't exist).
+float CVar(const char* name)
+{
+    std::wstring text(name, name + strlen(name));
+    FString str{text.data(), int32_t(text.size() + 1), int32_t(text.size() + 1)};
+    Call c(Cdo("KismetSystemLibrary"), "GetConsoleVariableFloatValue");
+    return c.Arg(0, str).Run() ? c.Out<float>("ReturnValue") : 0.f;
+}
+
 // How the game turns FOV into a picture: ULocalPlayer.AspectRatioAxisConstraint, unless the camera overrides it.
 // This game keeps the vertical FOV: reading FOV as horizontal put the ESP ~1.8x too far from the centre on 16:9.
 uint8_t FovAxis(UObject* pc, UObject* player)
@@ -645,13 +677,20 @@ void TickEsp(UObject* pc, UObject* player, uint64_t now)
 {
     EspFrame f;
     f.camera = ReadPov(pc, f.camLoc, f.camRot, f.fov, &f.aspect);
-    if (now - s.fovAxisAt > 1000) { // a setting, not per-frame state
+    if (now - s.fovAxisAt > 1000) { // settings, not per-frame state
         s.fovAxisAt = now;
         uint8_t axis = FovAxis(pc, player);
-        if (axis != s.fovAxis) km::Log("ESP: FOV axis %s", axis == 0 ? "vertical" : axis == 1 ? "horizontal" : "major");
+        float d = CVar("r.LensDistortion.Panini.D"), sq = CVar("r.LensDistortion.Panini.S");
+        if (axis != s.fovAxis || d != s.paniniD || sq != s.paniniS)
+            km::Log("ESP projection: FOV %.1f (%s), aspect %.2f, Panini D %.2f S %.2f", f.fov,
+                    axis == 0 ? "vertical" : axis == 1 ? "horizontal" : "major axis", f.aspect, d, sq);
         s.fovAxis = axis;
+        s.paniniD = d;
+        s.paniniS = sq;
     }
     f.fovAxis = s.fovAxis;
+    f.paniniD = s.paniniD;
+    f.paniniS = s.paniniS;
     f.active = g_on[Esp] && f.camera;
     if (f.active) {
         Vec me = Location(player);
@@ -1104,6 +1143,16 @@ void Tick()
         if (player) km::Log("Player found: %s", Name(player).c_str());
     }
 
+    if (!s.dropWatch.empty() && now - s.dropAt >= 100) {
+        s.dropAt = now;
+        for (DropWatch& w : s.dropWatch) TrimDrops(w);
+        std::erase_if(s.dropWatch, [&](const DropWatch& w) {
+            if (now < w.until) return false;
+            km::Log("Give %s: %zu left on the ground, %d extra copies removed", w.name.c_str(), w.kept.size(), w.removed);
+            return true;
+        });
+    }
+
     snap.player = player != nullptr;
     if (player) s.introsDone = true; // the intros only play before the first save is loaded
     TickIntros(now);
@@ -1243,12 +1292,13 @@ void GiveItem(const std::string& name, int count)
         UObject* im = ItemManager();
         UClass* stackable = FindClass("ItemInfoStackable");
         std::vector<UObject*> lying = Pickables(item);
-        bool stack = false;
+        bool stack = false, created = false;
         for (int i = 0, left = count; left > 0 && i < 50; i++) {
             Call create(im, "CreateAndInitializeItem");
             if (!create.Arg(0, item).Arg(1, player).Run()) break;
             UObject* info = create.Out<UObject*>("ItemInfoRef");
             if (!info) break;
+            created = true;
             int n = 1;
             if (IsA(info, stackable)) {
                 n = left;
@@ -1259,20 +1309,20 @@ void GiveItem(const std::string& name, int count)
             left -= n;
         }
         int after2 = ItemCount(item, true);
-        // With a full inventory that code drops each item about three times: keep only as many as were asked for.
-        int dropped = 0, removed = 0, keep = stack ? 1 : std::min(count, 50);
-        for (UObject* p : Pickables(item)) {
-            if (std::find(lying.begin(), lying.end(), p) != lying.end()) continue;
-            if (dropped < keep) dropped++;
-            else if (Call(p, "K2_DestroyActor").Run()) removed++;
-        }
-        km::Log("Give %s x%d via item manager: %d -> %d, %d dropped, %d extra copies removed", name.c_str(), count,
-                before, after2, dropped, removed);
+        // With a full inventory that code drops some items two or three times, some a moment later: keep only as many
+        // as were asked for, and keep watching for 2 s (see Tick).
+        DropWatch watch{item, name, std::move(lying), {}, stack ? 1 : std::min(count, 50), 0, GetTickCount64() + 2000};
+        TrimDrops(watch);
+        int dropped = int(watch.kept.size());
+        km::Log("Give %s x%d via item manager: %d -> %d, %d dropped, %d extra copies removed so far", name.c_str(),
+                count, before, after2, dropped, watch.removed);
+        bool added = after2 > before;
+        if (!added && created) s.dropWatch.push_back(std::move(watch)); // the drops may only appear in the next frames
         char failed[160];
         snprintf(failed, sizeof(failed), lang::T("Couldn't give %s"), Pretty(name).c_str());
-        menu::Toast(after2 > before ? "+" + std::to_string(after2 - before) + "  " + Pretty(name)
-                    : dropped       ? std::string(lang::T("Inventory full: dropped at your feet"))
-                                    : std::string(failed));
+        menu::Toast(added     ? "+" + std::to_string(after2 - before) + "  " + Pretty(name)
+                    : created ? std::string(lang::T("Inventory full: dropped at your feet"))
+                              : std::string(failed));
     });
 }
 
