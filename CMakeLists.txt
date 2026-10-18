@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(KetamineMenu VERSION 0.4.9 LANGUAGES C CXX)
+project(KetamineMenu VERSION 0.4.10 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

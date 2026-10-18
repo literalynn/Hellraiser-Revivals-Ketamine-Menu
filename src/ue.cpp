@@ -226,7 +226,7 @@ void GameThreadWork(uint64_t now)
         for (auto& t : tasks)
             if (!Guarded(t)) km::Log("A game-thread task faulted and was skipped");
     }
-    if (g_tick && now - lastTick >= 16) {
+    if (g_tick && g.ready && now - lastTick >= 16) { // not while the self-test still waits for the engine
         lastTick = now;
         static int faults;
         if (!Guarded(g_tick) && faults++ < 5) km::Log("Tick faulted (feature skipped this frame)");
@@ -271,14 +271,15 @@ bool FindAndHookProcessEvent()
     return false;
 }
 
-bool SelfTest()
+bool SelfTest(bool quiet)
 {
     UClass* actor = FindClass("Actor");
     Prop root = actor ? FindProp(actor, "RootComponent") : Prop{};
     Prop canBeDamaged = actor ? FindProp(actor, "bCanBeDamaged") : Prop{};
-    km::Log("Self-test: Actor %s, RootComponent @0x%X, bCanBeDamaged @0x%X mask 0x%X", actor ? "found" : "MISSING",
-            root.offset, canBeDamaged.offset, canBeDamaged.boolMask);
-    if (!root || root.offset < 0x28 || root.offset > 0x1000 || !canBeDamaged.boolMask) return false;
+    bool ok = root && root.offset >= 0x28 && root.offset <= 0x1000 && canBeDamaged.boolMask;    if (ok || !quiet)
+        km::Log("Self-test: Actor %s, RootComponent @0x%X, bCanBeDamaged @0x%X mask 0x%X", actor ? "found" : "MISSING",
+                root.offset, canBeDamaged.offset, canBeDamaged.boolMask);
+    if (!ok) return false;
 
     for (const char* name : {"PlayerCharacter", "CoreController", "BP_InfernoCheatManager_C", "ItemManager",
                              "PlayerAttributeSet", "EnemyCharacter", "GameplayStatics", "Item"})
@@ -321,7 +322,20 @@ bool Init(unsigned gameThreadId)
         km::Log("ProcessEvent not found: game features disabled");
         return false;
     }
-    g.ready = SelfTest();
+    // On a slow PC the window can appear before the engine has built every class's properties (a user's self-test
+    // failed once on a game that had passed it before): retry for up to a minute, forgetting the lookups that missed.
+    for (int attempt = 1;; attempt++) {
+        g.ready = SelfTest(attempt < 60); // quiet until the last try
+        if (g.ready || attempt == 60) break;
+        if (attempt == 1) km::Log("Self-test: the engine is still starting, retrying for up to a minute");
+        {
+            std::lock_guard lock(g_cacheMutex);
+            g_classes.clear();
+            g_props.clear();
+            g_funcs.clear();
+        }
+        Sleep(1000);
+    }
     km::Log("Reflection %s", g.ready ? "ready" : "FAILED self-test: game features disabled");
     return g.ready;
 }
