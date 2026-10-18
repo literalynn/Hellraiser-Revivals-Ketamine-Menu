@@ -104,9 +104,7 @@ struct State {
     uint64_t splashAt = 0, splashSince = 0; // last / first look for the startup splash screens
     bool introsDone = false;
     bool aimHooked = false, aimFailed = false;
-    uint8_t fovAxis = 255; // unknown until read (logged when it changes)
-    uint64_t fovAxisAt = 0;
-    float paniniD = -1, paniniS = -1;
+    bool viewLogged = false, viewFallbackLogged = false;
     std::vector<DropWatch> dropWatch;
     uint64_t dropAt = 0;
     std::map<std::string, Weak> cdo;
@@ -347,6 +345,20 @@ std::vector<UObject*> Pickables(UObject* item)
         return true;
     });
     return out;
+}
+
+// The watch for this item's drops, extended by 2 s: one per item, so quick repeated gives add up instead of each
+// removing the others' drops as extra copies.
+DropWatch& WatchDrops(UObject* item, const std::string& name, const std::vector<UObject*>& lying)
+{
+    uint64_t until = GetTickCount64() + 2000;
+    for (DropWatch& w : s.dropWatch)
+        if (w.item == item) {
+            w.until = until;
+            return w;
+        }
+    s.dropWatch.push_back(DropWatch{item, name, lying, {}, 0, 0, until});
+    return s.dropWatch.back();
 }
 
 void TrimDrops(DropWatch& w)
@@ -626,71 +638,89 @@ void RefreshWorld(uint64_t now)
     }
 }
 
-// The player's camera this frame: PlayerCameraManager.CameraCachePrivate.POV.{Location, Rotation, FOV}, and the
-// aspect ratio it is letterboxed to, if any (bConstrainAspectRatio / AspectRatio).
-bool ReadPov(UObject* pc, Vec& loc, Vec& rot, float& fov, float* aspect = nullptr)
+// The player's camera this frame: PlayerCameraManager.CameraCachePrivate.POV.{Location, Rotation}.
+bool ReadPov(UObject* pc, Vec& loc, Vec& rot)
 {
     UObject* pcm = Ptr(pc, "PlayerCameraManager");
     Prop cache = pcm ? FindProp(ClassOf(pcm), "CameraCachePrivate") : Prop{};
     Prop pov = cache.inner ? FindProp(static_cast<const UClass*>(cache.inner), "POV") : Prop{};
     auto* view = static_cast<const UClass*>(pov.inner);
-    Prop l = view ? FindProp(view, "Location") : Prop{}, r = view ? FindProp(view, "Rotation") : Prop{},
-         f = view ? FindProp(view, "FOV") : Prop{};
-    if (!l || !r || !f) return false;
+    Prop l = view ? FindProp(view, "Location") : Prop{}, r = view ? FindProp(view, "Rotation") : Prop{};
+    if (!l || !r) return false;
     const uint8_t* base = reinterpret_cast<const uint8_t*>(pcm) + cache.offset + pov.offset;
     std::memcpy(&loc, base + l.offset, sizeof(Vec));
     std::memcpy(&rot, base + r.offset, sizeof(Vec)); // FRotator: pitch, yaw, roll as doubles
-    std::memcpy(&fov, base + f.offset, sizeof(float));
-    if (aspect) {
-        Prop constrain = FindProp(view, "bConstrainAspectRatio"), ratio = FindProp(view, "AspectRatio");
-        *aspect = constrain.boolMask && ratio && (base[constrain.offset] & constrain.boolMask)
-                      ? *reinterpret_cast<const float*>(base + ratio.offset)
-                      : 0.f;
+    return true;
+}
+
+// Unreal's rotation matrix axes: X forward, Y right, Z up.
+void Axes(const Vec& rot, Vec& fwd, Vec& right, Vec& up)
+{
+    double sp = std::sin(rot.x * kDegToRad), cp = std::cos(rot.x * kDegToRad), sy = std::sin(rot.y * kDegToRad),
+           cy = std::cos(rot.y * kDegToRad), sr = std::sin(rot.z * kDegToRad), cr = std::cos(rot.z * kDegToRad);
+    fwd = {cp * cy, cp * sy, sp};
+    right = {sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp};
+    up = {-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp};
+}
+
+// The camera and the engine's own projection, measured this frame. APlayerController::ProjectWorldLocationToScreen
+// is what the picture uses (the FOV editor's locked FOV, the aspect-ratio rules, letterboxing, aiming zoom): a
+// perspective projection is set by its centre and two focal lengths, so three points in front of the camera give
+// it exactly, and every ESP point is then projected with it (no per-bone engine call). Rebuilding it from the camera's
+// FOV went wrong: the picture uses the camera manager's FOV angle (locked by the FOV editor), not the cached one.
+bool MeasureView(UObject* pc, EspFrame& f)
+{
+    Vec rot;
+    if (!ReadPov(pc, f.camLoc, rot)) return false;
+    Axes(rot, f.camFwd, f.camRight, f.camUp);
+    struct Vec2 {
+        double x, y;
+    } o{}, r{}, u{};
+    constexpr double kAhead = 1000, kSide = 0.25; // 10 m ahead, a quarter of that to the side / up
+    auto screen = [&](double side, double lift, Vec2& out) {
+        Vec w{f.camLoc.x + (f.camFwd.x + f.camRight.x * side + f.camUp.x * lift) * kAhead,
+              f.camLoc.y + (f.camFwd.y + f.camRight.y * side + f.camUp.y * lift) * kAhead,
+              f.camLoc.z + (f.camFwd.z + f.camRight.z * side + f.camUp.z * lift) * kAhead};
+        Call c(pc, "ProjectWorldLocationToScreen");
+        if (!c.Arg(0, w).Arg(2, false).Run() || !c.Out<bool>("ReturnValue")) return false;
+        out = c.Out<Vec2>("ScreenLocation");
+        return true;
+    };
+    Call size(pc, "GetViewportSize");
+    if (!size.Run()) return false;
+    f.width = size.Out<int32_t>("SizeX");
+    f.height = size.Out<int32_t>("SizeY");
+    if (f.width <= 0 || f.height <= 0) return false;
+    if (screen(0, 0, o) && screen(kSide, 0, r) && screen(0, kSide, u)) {
+        f.cx = o.x;
+        f.cy = o.y;
+        f.fx = (r.x - o.x) / kSide;
+        f.fy = (o.y - u.y) / kSide;
+        if (f.fx > 1 && f.fy > 1) return true;
     }
-    return fov > 5 && fov < 170;
-}
-
-// A console variable's value (0 when it doesn't exist).
-float CVar(const char* name)
-{
-    std::wstring text(name, name + strlen(name));
-    FString str{text.data(), int32_t(text.size() + 1), int32_t(text.size() + 1)};
-    Call c(Cdo("KismetSystemLibrary"), "GetConsoleVariableFloatValue");
-    return c.Arg(0, str).Run() ? c.Out<float>("ReturnValue") : 0.f;
-}
-
-// How the game turns FOV into a picture: ULocalPlayer.AspectRatioAxisConstraint, unless the camera overrides it.
-// This game keeps the vertical FOV: reading FOV as horizontal put the ESP ~1.8x too far from the centre on 16:9.
-uint8_t FovAxis(UObject* pc, UObject* player)
-{
-    uint8_t* local = Member<uint8_t>(Ptr(pc, "Player"), "AspectRatioAxisConstraint");
-    uint8_t axis = local ? *local : 1;
-    Call cam(player, "GetComponentByClass");
-    UObject* c = cam.Arg(0, FindClass("CameraComponent")).Run() ? cam.Out<UObject*>("ReturnValue") : nullptr;
-    bool over = false;
-    if (c && GetBool(c, "bOverrideAspectRatioAxisConstraint", &over) && over)
-        if (uint8_t* own = Member<uint8_t>(c, "AspectRatioAxisConstraint")) axis = *own;
-    return axis;
+    // The engine call failed: the camera manager's FOV angle (what the picture uses) across the width.
+    Call angle(Ptr(pc, "PlayerCameraManager"), "GetFOVAngle");
+    float fov = angle.Run() ? angle.Out<float>("ReturnValue") : 0.f;
+    if (fov < 5 || fov > 170) return false;
+    if (!s.viewFallbackLogged) {
+        s.viewFallbackLogged = true;
+        km::Log("ESP projection: the engine's projection failed, using the FOV angle (%.1f)", fov);
+    }
+    f.cx = f.width / 2;
+    f.cy = f.height / 2;
+    f.fx = f.fy = f.cx / std::tan(fov * 0.5 * kDegToRad);
+    return true;
 }
 
 void TickEsp(UObject* pc, UObject* player, uint64_t now)
 {
     EspFrame f;
-    f.camera = ReadPov(pc, f.camLoc, f.camRot, f.fov, &f.aspect);
-    if (now - s.fovAxisAt > 1000) { // settings, not per-frame state
-        s.fovAxisAt = now;
-        uint8_t axis = FovAxis(pc, player);
-        float d = CVar("r.LensDistortion.Panini.D"), sq = CVar("r.LensDistortion.Panini.S");
-        if (axis != s.fovAxis || d != s.paniniD || sq != s.paniniS)
-            km::Log("ESP projection: FOV %.1f (%s), aspect %.2f, Panini D %.2f S %.2f", f.fov,
-                    axis == 0 ? "vertical" : axis == 1 ? "horizontal" : "major axis", f.aspect, d, sq);
-        s.fovAxis = axis;
-        s.paniniD = d;
-        s.paniniS = sq;
+    f.camera = MeasureView(pc, f);
+    if (f.camera && !s.viewLogged) {
+        s.viewLogged = true;
+        km::Log("ESP projection from the engine: %.0fx%.0f, centre %.1f,%.1f, focal %.1f,%.1f", f.width, f.height, f.cx,
+                f.cy, f.fx, f.fy);
     }
-    f.fovAxis = s.fovAxis;
-    f.paniniD = s.paniniD;
-    f.paniniS = s.paniniS;
     f.active = g_on[Esp] && f.camera;
     if (f.active) {
         Vec me = Location(player);
@@ -771,11 +801,9 @@ Vec HeadOf(UObject* enemy)
 bool AimPoint(Vec& out)
 {
     UObject* pc = s.pc.Get();
-    Vec cam, rot;
-    float fov;
-    if (!pc || !ReadPov(pc, cam, rot, fov)) return false;
-    double cp = std::cos(rot.x * kDegToRad);
-    Vec fwd{cp * std::cos(rot.y * kDegToRad), cp * std::sin(rot.y * kDegToRad), std::sin(rot.x * kDegToRad)};
+    Vec cam, rot, fwd, right, up;
+    if (!pc || !ReadPov(pc, cam, rot)) return false;
+    Axes(rot, fwd, right, up);
     double best = std::cos(g_value[AimFov] * kDegToRad); // cosine of the angle to the crosshair: higher is closer
     bool found = false;
     RefreshEnemies(GetTickCount64());
@@ -1279,50 +1307,60 @@ void GiveItem(const std::string& name, int count)
         if (!item || count <= 0) return;
         int before = ItemCount(item, true);
         Call cheat(CheatManager(), "K2_GiveItem");
-        if (cheat && cheat.Arg(0, item).Arg(1, count).Run()) {
+        bool cheatRan = cheat && cheat.Arg(0, item).Arg(1, count).Run();
+        if (cheatRan) {
             int after = ItemCount(item, true);
             km::Log("Give %s x%d via cheat manager: %d -> %d", name.c_str(), count, before, after);
             if (after > before) {
                 menu::Toast("+" + std::to_string(after - before) + "  " + Pretty(name));
                 return;
             }
-            // Nothing added: the inventory is full and the developers' give does nothing then. The game's own
-            // inventory code below drops what doesn't fit.
+            // Nothing added: no room (the developers' give then does nothing at all). Drop the items below.
         }
+        // One item info per item (one for a stack). Without the cheat: the game's AddItemInInventory. When there's no
+        // room: the game's DropItem, or AddItemInInventory if that left nothing on the ground (it drops what doesn't
+        // fit, but some firearms twice). Every item that didn't go into the bag counts as one pickup to leave on the
+        // ground; any copy beyond that is removed (see DropWatch).
         UObject* im = ItemManager();
         UClass* stackable = FindClass("ItemInfoStackable");
         std::vector<UObject*> lying = Pickables(item);
-        bool stack = false, created = false;
+        DropWatch* watch = nullptr; // made on the first item that doesn't fit
+        int added = 0, dropped = 0;
+        bool created = false;
         for (int i = 0, left = count; left > 0 && i < 50; i++) {
             Call create(im, "CreateAndInitializeItem");
-            if (!create.Arg(0, item).Arg(1, player).Run()) break;
-            UObject* info = create.Out<UObject*>("ItemInfoRef");
+            UObject* info = create.Arg(0, item).Arg(1, player).Run() ? create.Out<UObject*>("ItemInfoRef") : nullptr;
             if (!info) break;
             created = true;
             int n = 1;
             if (IsA(info, stackable)) {
                 n = left;
                 *Member<int32_t>(info, "StackableCount") = n;
-                stack = true;
             }
-            Call(im, "AddItemInInventory").Arg(0, info).Arg(1, player).Arg(2, false).Arg(3, false).Arg(4, false).Run();
             left -= n;
+            int inBag = ItemCount(item, true);
+            size_t onGround = Pickables(item).size();
+            if (cheatRan) Call(im, "DropItem").Arg(0, info).Arg(1, player).Arg(2, true).Run();
+            if (!cheatRan || Pickables(item).size() == onGround)
+                Call(im, "AddItemInInventory").Arg(0, info).Arg(1, player).Arg(2, false).Arg(3, false).Arg(4, false).Run();
+            if (ItemCount(item, true) > inBag) {
+                added += n;
+                continue;
+            }
+            if (!watch) watch = &WatchDrops(item, name, lying);
+            watch->keep++;
+            dropped += n;
         }
-        int after2 = ItemCount(item, true);
-        // With a full inventory that code drops some items two or three times, some a moment later: keep only as many
-        // as were asked for, and keep watching for 2 s (see Tick).
-        DropWatch watch{item, name, std::move(lying), {}, stack ? 1 : std::min(count, 50), 0, GetTickCount64() + 2000};
-        TrimDrops(watch);
-        int dropped = int(watch.kept.size());
-        km::Log("Give %s x%d via item manager: %d -> %d, %d dropped, %d extra copies removed so far", name.c_str(),
-                count, before, after2, dropped, watch.removed);
-        bool added = after2 > before;
-        if (!added && created) s.dropWatch.push_back(std::move(watch)); // the drops may only appear in the next frames
-        char failed[160];
-        snprintf(failed, sizeof(failed), lang::T("Couldn't give %s"), Pretty(name).c_str());
-        menu::Toast(added     ? "+" + std::to_string(after2 - before) + "  " + Pretty(name)
-                    : created ? std::string(lang::T("Inventory full: dropped at your feet"))
-                              : std::string(failed));
+        if (watch) TrimDrops(*watch);
+        km::Log("Give %s x%d via item manager: %d added, %d dropped (%d pickups kept, %d extra copies removed so far)",
+                name.c_str(), count, added, dropped, watch ? int(watch->kept.size()) : 0, watch ? watch->removed : 0);
+        if (added) menu::Toast("+" + std::to_string(added) + "  " + Pretty(name));
+        if (dropped) menu::Toast(lang::T("Inventory full: dropped at your feet"));
+        if (!created) {
+            char failed[160];
+            snprintf(failed, sizeof(failed), lang::T("Couldn't give %s"), Pretty(name).c_str());
+            menu::Toast(failed);
+        }
     });
 }
 

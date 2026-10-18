@@ -63,8 +63,8 @@ struct Snapshot {
 };
 Snapshot GetSnapshot();
 
-// What the ESP draws, gathered on the game thread once per engine frame together with that frame's camera, so the
-// boxes match the picture instead of trailing it.
+// What the ESP draws, gathered on the game thread once per engine frame together with that frame's camera and the
+// engine's own projection, so every point lands where the game draws it.
 struct Vec3 {
     double x = 0, y = 0, z = 0;
 };
@@ -84,12 +84,10 @@ struct EspThing {
 };
 struct EspFrame {
     bool active = false; // ESP data below
-    bool camera = false; // camera read in the same frame (also drawn for the aim circle)
-    Vec3 camLoc, camRot; // camRot: x pitch, y yaw, z roll (degrees)
-    float fov = 0;
-    uint8_t fovAxis = 1; // EAspectRatioAxisConstraint: 0 = fov is vertical, 1 = horizontal, 2 = along the longer side
-    float aspect = 0;    // > 0: the picture is letterboxed to this aspect ratio (fov horizontal within it)
-    float paniniD = 0, paniniS = 0; // Panini projection (r.LensDistortion.Panini.D / .S): pulls the edges inwards
+    bool camera = false; // the camera and projection below were measured this frame (also used by the aim circle)
+    Vec3 camLoc, camFwd, camRight, camUp;
+    // Screen = (cx + fx * right/forward, cy - fy * up/forward), in pixels of a width x height viewport.
+    double cx = 0, cy = 0, fx = 0, fy = 0, width = 0, height = 0;
     std::vector<EspEnemy> enemies;
     std::vector<EspThing> things;
 };

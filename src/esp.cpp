@@ -19,62 +19,40 @@ constexpr double kDeg = 3.14159265358979 / 180.0;
 
 struct View {
     Vec3 loc, fwd, right, up;
-    float focal = 0, cx = 0, cy = 0;
-    double paniniD = 0, paniniS = 0, fit = 1;
+    float cx = 0, cy = 0, fx = 0, fy = 0; // in overlay pixels
+    float focal = 0;                      // fx, for sizes that scale with distance
 };
-
-// Unreal's Panini projection (PaniniProjection.usf): a point on the z = 1 plane -> where the post-process moves it.
-void Panini(double& x, double& y, double d, double s)
-{
-    double inv = 1 / std::sqrt(1 + x * x), sinPhi = x * inv, tanTheta = y * inv, cosPhi = std::sqrt(1 - sinPhi * sinPhi);
-    double k = (d + 1) / (d + cosPhi);
-    x = k * sinPhi;
-    y = k * (tanTheta + (tanTheta / cosPhi - tanTheta) * s);
-}
 
 double Dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 Vec3 Sub(const Vec3& a, const Vec3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 
-// The camera of the game frame the positions come from.
+// The camera and the engine's projection measured in the game frame the positions come from, scaled from the game's
+// viewport to the overlay (normally the same size).
 bool ReadView(const feat::EspFrame& f, View& v)
 {
     if (!f.camera) return false;
-    v.loc = f.camLoc;
-    float fov = f.fov;
-    // Unreal's rotation matrix axes: X forward, Y right, Z up. camRot: x pitch, y yaw, z roll.
-    double sp = std::sin(f.camRot.x * kDeg), cp = std::cos(f.camRot.x * kDeg), sy = std::sin(f.camRot.y * kDeg),
-           cy = std::cos(f.camRot.y * kDeg), sr = std::sin(f.camRot.z * kDeg), cr = std::cos(f.camRot.z * kDeg);
-    v.fwd = {cp * cy, cp * sy, sp};
-    v.right = {sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp};
-    v.up = {-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp};
     ImVec2 ds = ImGui::GetIO().DisplaySize;
-    v.cx = ds.x * 0.5f;
-    v.cy = ds.y * 0.5f;
-    // Unreal's projection: the FOV spans the width (MaintainXFOV, or MajorAxisFOV on a landscape screen), else the
-    // height; a letterboxed view spans the width of its box.
-    float t = std::tan(float(fov * 0.5 * kDeg));
-    bool across = f.fovAxis == 1 || (f.fovAxis == 2 && ds.x >= ds.y);
-    v.focal = f.aspect > 0 ? std::min(ds.x, ds.y * f.aspect) * 0.5f / t : (across ? v.cx : v.cy) / t;
-    if (f.paniniD > 0) { // the engine then scales the result so the left and right edges stay on the edges
-        v.paniniD = f.paniniD;
-        v.paniniS = f.paniniS;
-        double ex = v.cx / v.focal, ey = 0;
-        Panini(ex, ey, v.paniniD, v.paniniS);
-        v.fit = v.cx / v.focal / ex;
-    }
+    float sx = float(ds.x / f.width), sy = float(ds.y / f.height);
+    v.loc = f.camLoc;
+    v.fwd = f.camFwd;
+    v.right = f.camRight;
+    v.up = f.camUp;
+    v.cx = float(f.cx) * sx;
+    v.cy = float(f.cy) * sy;
+    v.fx = float(f.fx) * sx;
+    v.fy = float(f.fy) * sy;
+    v.focal = v.fx;
     return true;
 }
 
-// World -> screen. `depth` = distance along the view axis (cm). False when behind the camera.
+// World -> screen with the engine's projection. `depth` = distance along the view axis (cm). False when behind.
 bool Project(const View& v, const Vec3& w, ImVec2& out, double* depth = nullptr)
 {
     Vec3 d = Sub(w, v.loc);
     double x = Dot(d, v.fwd);
     if (depth) *depth = x;
     if (x < 1) return false;
-    double px = Dot(d, v.right) / x, py = Dot(d, v.up) / x;
-    if (v.paniniD > 0) Panini(px, py, v.paniniD, v.paniniS);
-    out = {float(v.cx + px * v.fit * v.focal), float(v.cy - py * v.fit * v.focal)};
+    out = {float(v.cx + Dot(d, v.right) / x * v.fx), float(v.cy - Dot(d, v.up) / x * v.fy)};
     return true;
 }
 
@@ -163,7 +141,7 @@ void DrawEnemy(ImDrawList* dl, const View& v, const feat::EspEnemy& e, float s)
             dl->AddCircle(hp, r, Raw(Pink), 20, 1.5f * s);
         }
     }
-    if (g_on[feat::EspSnaplines]) dl->AddLine({v.cx, v.cy * 2}, {(a.x + b.x) * 0.5f, b.y}, Raw(Alpha(Violet, 0.8f)), 1.f * s);
+    if (g_on[feat::EspSnaplines]) dl->AddLine({v.cx, ImGui::GetIO().DisplaySize.y},{(a.x + b.x) * 0.5f, b.y}, Raw(Alpha(Violet, 0.8f)), 1.f * s);
     if (g_on[feat::EspBox]) {
         dl->AddRect({a.x - 1, a.y - 1}, {b.x + 1, b.y + 1}, Raw(Alpha(Black, 0.85f)), 0, 0, 3.f * s);
         dl->AddRect(a, b, Raw(Violet), 0, 0, 1.4f * s);
@@ -212,11 +190,10 @@ void Draw()
     float s = ImGui::GetStyle().FontScaleMain;
 
     if (circle) { // the aim FOV: enemies whose head is inside the circle can be targeted
-        double rx = std::tan(feat::g_value[feat::AimFov] * kDeg), ry = 0;
-        if (v.paniniD > 0) Panini(rx, ry, v.paniniD, v.paniniS);
-        float r = float(rx * v.fit * v.focal);
-        dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Black, 0.5f)), 96, 3.f * s);
-        dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Violet, 0.85f)), 96, 1.3f * s);
+        float t = float(std::tan(feat::g_value[feat::AimFov] * kDeg));
+        ImVec2 c{v.cx, v.cy}, rad{t * v.fx, t * v.fy}; // the same angle in both directions
+        dl->AddEllipse(c, rad, Raw(Alpha(Black, 0.5f)), 0, 96, 3.f * s);
+        dl->AddEllipse(c, rad, Raw(Alpha(Violet, 0.85f)), 0, 96, 1.3f * s);
     }
     if (!g_on[feat::Esp] || !f.active) return;
 
