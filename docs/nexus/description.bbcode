@@ -12,7 +12,7 @@
 [list]
 [*][b]One DLL, nothing else.[/b] No UE4SS, no Cheat Engine, no launcher, no Visual C++ redistributable.
 [*][b]No game file modified.[/b] Uninstalling is deleting one file.
-[*][b]Several mods in one.[/b] Trainer, FOV editor, free camera, ESP, item spawner, auto lockpick and intro skip in a single menu.
+[*][b]Several mods in one.[/b] Trainer, silent aim, FOV editor, free camera, ESP, item spawner, auto lockpick and intro skip in a single menu.
 [*][b]Clean overlay.[/b] A real in-game menu (DirectX 12 and 11), mouse and keyboard, with tooltips on every option.
 [*][b]9 languages.[/b] English, 简体中文, 日本語, 한국어, Русский, Deutsch, Français, Español, Português (Brasil). It follows your Windows language; change it in Settings.
 [*][b]Zero footprint when closed.[/b] Nothing is drawn and your input is untouched, apart from the ESP and hotkeys you turn on.
@@ -47,6 +47,7 @@
 [/list]
 [b]Combat[/b]
 [list]
+[*][b]Silent aim:[/b] your shots hit the head of the enemy nearest the crosshair, inside an adjustable circle (shown or hidden from the ESP tab)
 [*]Infinite ammo, unbreakable melee weapons
 [*]Genesis Configuration powers with no Suffering cost, no power cooldown, refill Suffering
 [*][b]Unlock powers early:[/b] Telekinesis, Pyrokinesis and Hellchains, before the story gives them
@@ -104,6 +105,8 @@
 next to [i]Hellraiser-Win64-Shipping.exe[/i].
 [*]Start the game, load a save, press [b]Insert[/b] or [b]F8[/b].
 [/list]
+[b]Linux / Steam Deck (Proton):[/b] Proton loads its own [i]winmm.dll[/i] instead of the menu's. In Steam, right-click the game → [i]Properties[/i] → [i]Launch Options[/i] and add:
+[code]WINEDLLOVERRIDES="winmm=n,b" %command%[/code]
 
 [size=4][b][color=#AC6EE2]Before you play[/color][/b][/size]
 [list]
@@ -115,6 +118,7 @@ next to [i]Hellraiser-Win64-Shipping.exe[/i].
 [list]
 [*][b]Game:[/b] 1.1.1.227384 (October 2026 update) and 1.0.1.227219, Steam.
 [*][b]Renderer:[/b] DirectX 12 (default) and DirectX 11.
+[*][b]Linux / Steam Deck:[/b] works through Proton with the launch option above.
 [*][b]Other mods:[/b] uses [i]winmm.dll[/i], so it works alongside ReShade ([i]dxgi.dll[/i]) and UE4SS ([i]dwmapi.dll[/i]).
 [*][b]Frame generation[/b] (DLSS-G, FSR, XeSS FG): supported. If the menu flickers, turn frame generation off.
 [/list]

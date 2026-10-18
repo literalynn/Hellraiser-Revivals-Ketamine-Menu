@@ -69,6 +69,8 @@ Clive Barker's Hellraiser - Revival\
 **手动“解压到游戏目录”：** 请改用 `KetamineMenu-vX.Y.Z-Nexus.zip`。它已经包含 `Hellraiser\Binaries\Win64\` 文件夹结构，
 所以 Vortex 会把它装到正确的位置，你也可以直接把它解压到游戏目录。
 
+**Linux / Steam Deck（Proton）：** Proton 默认加载它自带的 `winmm.dll`，而不是本菜单的。在 Steam 中右键游戏 → **属性**（Properties）→ **启动选项**（Launch Options），添加 `WINEDLLOVERRIDES="winmm=n,b" %command%`。
+
 > [!TIP]
 > 如果按 <kbd>Insert</kbd> / <kbd>F8</kbd> 没有反应，请打开 DLL 旁边的 `KetamineMenu.log`：里面写清楚了找到了什么、没找到什么。
 > 参见[常见问题](#常见问题--故障排除)。
@@ -94,6 +96,7 @@ Clive Barker's Hellraiser - Revival\
 - 创世构型（Genesis Configuration）能力不消耗痛苦值
 - 能力无冷却、填满痛苦值
 - 提前解锁念动力、念火和地狱锁链（不用等剧情）
+- 静默自瞄：子弹命中准星附近圆圈内最近敌人的头部（圆圈大小可调）
 
 **移动**
 - 飞行和穿墙，朝视线方向移动，使用常用的移动键或手柄

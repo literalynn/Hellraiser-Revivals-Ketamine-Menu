@@ -69,6 +69,8 @@ Clive Barker's Hellraiser - Revival\
 **Manual "extract to game folder":** use `KetamineMenu-vX.Y.Z-Nexus.zip` instead. It already contains the
 `Hellraiser\Binaries\Win64\` folders, so Vortex installs it in the right place, or you can extract it straight into the game folder.
 
+**Linux / Steam Deck (Proton):** Proton loads its own `winmm.dll` instead of the menu's. In Steam, right-click the game → **Properties** → **Launch Options** and add `WINEDLLOVERRIDES="winmm=n,b" %command%`.
+
 > [!TIP]
 > If <kbd>Insert</kbd> / <kbd>F8</kbd> do nothing, open `KetamineMenu.log` next to the DLL: it says exactly what was found and what wasn't.
 > See the [FAQ](#faq--troubleshooting).
@@ -95,6 +97,7 @@ out with the reason in a tooltip instead of crashing.
 - Genesis Configuration powers with no Suffering cost
 - No power cooldown, refill Suffering
 - Unlock Telekinesis, Pyrokinesis and Hellchains before the story does
+- Silent aim: your shots hit the head of the enemy nearest the crosshair, inside an adjustable circle
 
 **Movement**
 - Fly and noclip, towards where you look, with your usual movement keys or gamepad

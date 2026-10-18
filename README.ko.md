@@ -69,6 +69,8 @@ Clive Barker's Hellraiser - Revival\
 **수동으로 "게임 폴더에 압축 풀기":** 대신 `KetamineMenu-vX.Y.Z-Nexus.zip`을 사용하세요. `Hellraiser\Binaries\Win64\` 폴더 구조가
 이미 들어 있어서 Vortex가 올바른 위치에 설치하며, 게임 폴더에 바로 압축을 풀어도 됩니다.
 
+**Linux / Steam Deck (Proton):** Proton은 메뉴의 `winmm.dll` 대신 자체 파일을 불러옵니다. Steam에서 게임을 우클릭 → **속성**(Properties) → **실행 옵션**(Launch Options)에 `WINEDLLOVERRIDES="winmm=n,b" %command%`를 추가하세요.
+
 > [!TIP]
 > <kbd>Insert</kbd> / <kbd>F8</kbd>을 눌러도 아무 반응이 없다면 DLL 옆에 있는 `KetamineMenu.log`를 열어 보세요. 무엇을 찾았고 무엇을 못 찾았는지 정확히 적혀 있습니다.
 > [FAQ](#faq--문제-해결)도 참고하세요.
@@ -95,6 +97,7 @@ Clive Barker's Hellraiser - Revival\
 - 제네시스 구성(Genesis Configuration) 능력 사용 시 고통 소모 없음
 - 능력 쿨다운 없음, 고통 채우기
 - 염력, 발화 능력, 지옥 사슬을 스토리보다 먼저 잠금 해제
+- 사일런트 에임: 조절 가능한 원 안에서 조준점에 가장 가까운 적의 머리에 총알이 맞음
 
 **이동**
 - 비행과 벽 통과: 바라보는 방향으로, 평소의 이동 키나 게임패드로 조작

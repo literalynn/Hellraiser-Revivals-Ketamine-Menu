@@ -69,6 +69,8 @@ Clive Barker's Hellraiser - Revival\
 **A mano, "extraer en la carpeta del juego":** usa `KetamineMenu-vX.Y.Z-Nexus.zip`. Ya trae las carpetas `Hellraiser\Binaries\Win64\`,
 así que Vortex lo instala en el sitio correcto, o puedes extraerlo directamente en la carpeta del juego.
 
+**Linux / Steam Deck (Proton):** Proton carga su propia `winmm.dll` en lugar de la del menú. En Steam, clic derecho en el juego → **Propiedades** (Properties) → **Opciones de lanzamiento** (Launch Options) y añade `WINEDLLOVERRIDES="winmm=n,b" %command%`.
+
 > [!TIP]
 > Si <kbd>Insert</kbd> / <kbd>F8</kbd> no hacen nada, abre `KetamineMenu.log` junto a la DLL: dice exactamente qué se encontró y qué no.
 > Consulta las [FAQ](#faq--solución-de-problemas).
@@ -95,6 +97,7 @@ Cada opción busca los datos del juego **por su nombre mientras se ejecuta**. Si
 - Poderes de la Configuración Génesis sin coste de Sufrimiento
 - Poderes sin enfriamiento, llenar Sufrimiento
 - Desbloquear Telequinesis, Piroquinesis y Cadenas infernales antes que la historia
+- Aim silencioso: tus disparos dan en la cabeza del enemigo más cercano a la mira, dentro de un círculo ajustable
 
 **Movimiento**
 - Volar y noclip hacia donde miras, con tus teclas de movimiento habituales o el mando

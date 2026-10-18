@@ -69,6 +69,8 @@ Clive Barker's Hellraiser - Revival\
 **手動で「ゲームフォルダに展開」する場合：** 代わりに `KetamineMenu-vX.Y.Z-Nexus.zip` を使ってください。`Hellraiser\Binaries\Win64\`
 のフォルダ構成が含まれているので、Vortex が正しい場所に入れてくれますし、ゲームフォルダにそのまま展開することもできます。
 
+**Linux / Steam Deck（Proton）：** Proton はメニューのものではなく自前の `winmm.dll` を読み込みます。Steam でゲームを右クリック → **プロパティ**（Properties）→ **起動オプション**（Launch Options）に `WINEDLLOVERRIDES="winmm=n,b" %command%` を追加してください。
+
 > [!TIP]
 > <kbd>Insert</kbd> / <kbd>F8</kbd> を押しても何も起きない場合は、DLL と同じ場所にある `KetamineMenu.log` を開いてください。何が見つかり、何が見つからなかったかが書かれています。
 > [FAQ](#faq--トラブルシューティング) も参照してください。
@@ -95,6 +97,7 @@ Clive Barker's Hellraiser - Revival\
 - ジェネシス構成（Genesis Configuration）の能力で苦痛を消費しない
 - 能力のクールダウンなし、苦痛を満タンにする
 - 念動力・発火能力・ヘルチェーンをストーリーより先にアンロック
+- サイレントエイム：調整できる円の中で照準に最も近い敵の頭に弾が当たる
 
 **移動**
 - 飛行と壁抜け。見ている方向へ、いつもの移動キーやゲームパッドで操作
