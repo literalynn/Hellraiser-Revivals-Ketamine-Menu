@@ -431,6 +431,28 @@ void TabCombat(const feat::Snapshot& s)
         ImGui::EndDisabled();
     }
     for (Toggle t : {feat::NoSufferingCost, feat::NoPowerCooldown}) ToggleRow(t, s);
+    for (int p = 0; p < feat::PowerCount; p++) {
+        ImGui::PushID(p);
+        ImVec2 rowMin = ImGui::GetCursorScreenPos();
+        float avail = ImGui::GetContentRegionAvail().x;
+        RowHover(rowMin, avail);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(T(feat::kPowerNames[p]));
+        if (s.powers[p]) {
+            SameLineRight(ImGui::CalcTextSize(T("Unlocked")).x);
+            ImGui::TextDisabled("%s", T("Unlocked"));
+        } else {
+            SameLineRight(ButtonWidth(T("Unlock")));
+            ImGui::BeginDisabled(!s.powersWhy.empty());
+            if (ImGui::Button(T("Unlock"))) feat::UnlockPower(feat::Power(p));
+            ImGui::EndDisabled();
+        }
+        Tooltip(rowMin, {rowMin.x + avail, rowMin.y + ImGui::GetFrameHeight()},
+                s.powers[p]                ? ""
+                : !s.powersWhy.empty()     ? s.powersWhy
+                                           : "Gives the power now, even before the story does. Save first: it can skip its tutorial.");
+        ImGui::PopID();
+    }
 }
 
 void TabMovement(const feat::Snapshot& s)

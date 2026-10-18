@@ -36,6 +36,10 @@ struct ValueInfo {
 extern const ValueInfo kValues[ValueCount];
 extern std::atomic<float> g_value[ValueCount];
 
+// Genesis Configuration powers the story unlocks one by one.
+enum Power { Telekinesis, Pyrokinesis, Hellchains, PowerCount };
+extern const char* const kPowerNames[PowerCount];
+
 struct Named {
     std::string name;
     uint64_t fname = 0; // FName (objectives) or object index (checkpoints) for the action
@@ -50,6 +54,8 @@ struct Snapshot {
     int money = -1, shopLevel = -1;
     std::array<std::string, ToggleCount> why; // non-empty = unavailable, shown as tooltip
     std::array<std::string, ValueCount> valueWhy;
+    std::array<bool, PowerCount> powers{}; // unlocked
+    std::string powersWhy;                 // non-empty = can't unlock now
     std::vector<std::pair<std::string, std::vector<Named>>> items; // by category
     std::vector<Named> objectivesActive, objectivesDone, checkpoints;
     std::string tracked;
@@ -100,5 +106,6 @@ void SaveSlot(int slot);
 void LoadSlot(int slot);
 void TeleportCheckpoint(uint64_t index);
 void CompleteObjective(uint64_t fname);
+void UnlockPower(Power power);
 
 } // namespace feat

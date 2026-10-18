@@ -680,6 +680,62 @@ bool Hook(void* target, void* detour, void* original, const char* name)
     return s == MH_OK;
 }
 
+// A throwaway swapchain, only to read DXGI's Present address (every DXGI swapchain shares it). Some PCs refuse one on
+// our hidden window (E_ACCESSDENIED in a user's log), so fall back to the older blt model, the WARP software device,
+// then a swapchain with no window at all. Test hosts: KM_TEST_DUMMY=N skips the first N attempts.
+IDXGISwapChain1* DummySwapchain(HWND wnd)
+{
+    auto createDevice = reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(
+        GetProcAddress(LoadLibraryW(L"d3d11.dll"), "D3D11CreateDevice"));
+    if (!createDevice) return nullptr;
+    struct Attempt {
+        const char* name;
+        D3D_DRIVER_TYPE driver;
+        DXGI_SWAP_EFFECT effect;
+        bool windowless;
+    };
+    const Attempt attempts[] = {
+        {"flip", D3D_DRIVER_TYPE_HARDWARE, DXGI_SWAP_EFFECT_FLIP_DISCARD, false},
+        {"blt", D3D_DRIVER_TYPE_HARDWARE, DXGI_SWAP_EFFECT_DISCARD, false},
+        {"WARP", D3D_DRIVER_TYPE_WARP, DXGI_SWAP_EFFECT_DISCARD, false},
+        {"windowless", D3D_DRIVER_TYPE_HARDWARE, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, true},
+    };
+    char skip[8] = {};
+    GetEnvironmentVariableA("KM_TEST_DUMMY", skip, sizeof(skip));
+    for (int i = atoi(skip); i < int(std::size(attempts)); i++) {
+        const Attempt& a = attempts[i];
+        if (!wnd && !a.windowless) continue;
+        ID3D11Device* dev = nullptr;
+        IDXGIDevice* dxgiDev = nullptr;
+        IDXGIAdapter* adapter = nullptr;
+        IDXGIFactory2* factory = nullptr;
+        IDXGISwapChain1* sc = nullptr;
+        HRESULT hr = createDevice(nullptr, a.driver, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &dev, nullptr, nullptr);
+        if (SUCCEEDED(hr)) hr = dev->QueryInterface(IID_PPV_ARGS(&dxgiDev));
+        if (SUCCEEDED(hr)) hr = dxgiDev->GetAdapter(&adapter);
+        if (SUCCEEDED(hr)) hr = adapter->GetParent(IID_PPV_ARGS(&factory));
+        if (SUCCEEDED(hr)) {
+            DXGI_SWAP_CHAIN_DESC1 d{};
+            d.Width = d.Height = 64;
+            d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            d.SampleDesc.Count = 1;
+            d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+            d.BufferCount = 2;
+            d.SwapEffect = a.effect;
+            d.AlphaMode = a.windowless ? DXGI_ALPHA_MODE_PREMULTIPLIED : DXGI_ALPHA_MODE_UNSPECIFIED;
+            hr = a.windowless ? factory->CreateSwapChainForComposition(dev, &d, nullptr, &sc)
+                              : factory->CreateSwapChainForHwnd(dev, wnd, &d, nullptr, nullptr, &sc);
+        }
+        SafeRelease(factory);
+        SafeRelease(adapter);
+        SafeRelease(dxgiDev);
+        SafeRelease(dev); // the swapchain keeps its device alive
+        km::Log("Dummy swapchain (%s): %s (hr=0x%08lX)", a.name, sc ? "OK" : "failed", static_cast<unsigned long>(hr));
+        if (sc) return sc;
+    }
+    return nullptr;
+}
+
 } // namespace
 
 namespace overlay {
@@ -706,41 +762,21 @@ bool Install()
     RegisterClassExW(&wc);
     HWND dummy = CreateWindowExW(0, wc.lpszClassName, L"", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr,
                                  wc.hInstance, nullptr);
+    if (!dummy) km::Log("Dummy window: CreateWindowEx failed (error %lu)", GetLastError());
 
-    auto create = reinterpret_cast<PFN_D3D11_CREATE_DEVICE_AND_SWAP_CHAIN>(
-        GetProcAddress(LoadLibraryW(L"d3d11.dll"), "D3D11CreateDeviceAndSwapChain"));
-    DXGI_SWAP_CHAIN_DESC sd{};
-    sd.BufferCount = 2;
-    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow = dummy;
-    sd.SampleDesc.Count = 1;
-    sd.Windowed = TRUE;
-    sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    IDXGISwapChain* sc = nullptr;
-    ID3D11Device* dev = nullptr;
-    ID3D11DeviceContext* ctx = nullptr;
-    HRESULT hr = create ? create(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &sd,
-                                 &sc, &dev, nullptr, &ctx)
-                        : E_FAIL;
+    IDXGISwapChain1* sc = DummySwapchain(dummy);
     bool ok = false;
-    if (SUCCEEDED(hr)) {
+    if (sc) {
         void** vt = *reinterpret_cast<void***>(sc);
         g_presentTargets[0] = vt[kPresent];
+        g_presentTargets[1] = vt[kPresent1];
         ok = Hook(vt[kPresent], &hkPresent, &oPresent, "Present");
-        IDXGISwapChain1* sc1 = nullptr;
-        if (SUCCEEDED(sc->QueryInterface(IID_PPV_ARGS(&sc1)))) {
-            g_presentTargets[1] = (*reinterpret_cast<void***>(sc1))[kPresent1];
-            Hook(g_presentTargets[1], &hkPresent1, &oPresent1, "Present1");
-            sc1->Release();
-        }
+        Hook(vt[kPresent1], &hkPresent1, &oPresent1, "Present1");
     } else {
-        km::Log("Dummy swapchain creation failed (hr=0x%08lX), no overlay", static_cast<unsigned long>(hr));
+        km::Log("No dummy swapchain could be created, no overlay");
     }
     SafeRelease(sc);
-    SafeRelease(ctx);
-    SafeRelease(dev);
-    DestroyWindow(dummy);
+    if (dummy) DestroyWindow(dummy);
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
     return ok;
 }

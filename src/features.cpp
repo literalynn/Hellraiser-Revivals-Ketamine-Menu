@@ -54,10 +54,17 @@ const ValueInfo kValues[ValueCount] = {
     {"EspRange", 80, 10, 300}, {"EspWorldRange", 30, 5, 150},
 };
 
+const char* const kPowerNames[PowerCount] = {"Telekinesis", "Pyrokinesis", "Hellchains"};
+
 std::atomic<bool> g_on[ToggleCount];
 std::atomic<float> g_value[ValueCount];
 
 namespace {
+
+// The game's gameplay tags for each power (native tags, spelled as in the exe).
+const char* const kPowerTags[PowerCount] = {"Character.Ability.Genesisconfiguration.Telekinesis",
+                                            "Character.Ability.Genesisconfiguration.Pyrokinesis",
+                                            "Character.Ability.Genesisconfiguration.Hellchains"};
 
 using Vec = Vec3;
 struct Rot {
@@ -77,6 +84,7 @@ Snapshot g_snap;
 // Game-thread state.
 struct State {
     Weak pc, player, attrs, cmc, cheat, objectives;
+    Weak cheatPawn; // the pawn the tag-based cheats (invisible, infinite ammo) were applied to
     std::map<std::string, Weak> cdo;
     std::map<std::string, Weak> items;
     std::vector<Weak> enemies;
@@ -655,6 +663,18 @@ void TickPlayer(UObject* player, uint64_t now, Snapshot& snap)
     snap.suffering = suffering.Get();
     snap.maxSuffering = maxSuffering.Get();
 
+    // Powers given so far (a tag container: its first member is the tag array), and the Genesis Configuration itself.
+    auto* given = Member<TArray<uint64_t>>(player, "GivenGenesisConfigurationAbilities");
+    bool hasBox = false;
+    snap.powersWhy = !given || !GetBool(player, "bHasGenesisConfiguration", &hasBox) ? "Powers not found."
+                     : !hasBox ? "Get the Genesis Configuration first: the story gives it."
+                               : "";
+    for (int p = 0; p < PowerCount; p++) {
+        snap.powers[p] = false;
+        for (int i = 0; given && i < given->num && i < 32; i++)
+            snap.powers[p] = snap.powers[p] || _stricmp(NameToString(&given->data[i]).c_str(), kPowerTags[p]) == 0;
+    }
+
     // Player
     if (!health || !maxHealth) why[GodMode] = why[InfiniteHealth] = "Health attribute not found.";
     if (Track(GodMode, [&] { SetBool(player, "bCanBeDamaged", true); })) SetBool(player, "bCanBeDamaged", false);
@@ -667,20 +687,25 @@ void TickPlayer(UObject* player, uint64_t now, Snapshot& snap)
 
     if (!CheatAvailable()) why[Invisible] = "The developers' cheat manager isn't available.";
     // These cheats flip a state on each call: mirror it (reset when the cheat manager is recreated).
+    // Their state is a tag on the pawn's ability system (Cheats.Character.Invisible / .infiniteAmmo), so a new pawn
+    // (death, reload) starts without them; the same pawn coming back after a cutscene keeps them.
+    if (s.cheatPawn.Get() != player) {
+        s.cheatPawn = Weak(player);
+        s.cheatState[Invisible] = s.cheatState[InfiniteAmmo] = false;
+    }
     auto cheatToggle = [&](Toggle t, const char* fn) {
         if (g_on[t] != s.cheatState[t] && (g_on[t] || s.cheat.Get()) && CheatAvailable() && CheatCall(fn))
             s.cheatState[t] = g_on[t];
     };
     cheatToggle(Invisible, "K2_InvisiblePlayer");
     cheatToggle(InfiniteAmmo, "K2_ToggleUnlimitedAmmo");
-    UObject* cheat = s.cheat.Get();
 
     if (!FindClass("EnemyCharacter")) why[OneHitKill] = snap.valueWhy[DamageMult] = "Enemy class not found.";
     TickEnemyDamage(player, now);
 
     // Combat
     UObject* item = Ptr(player, "CurrentEquipmentItemInfo");
-    if (g_on[InfiniteAmmo] && !cheat) { // fallback when the developers' cheat is unavailable: keep the magazine full
+    if (g_on[InfiniteAmmo]) { // also keep the magazine full ourselves: covers the cheat being missing or removed
         int* ammo = item && IsA(item, FindClass("ItemInfoRangedWeapon")) ? Member<int>(item, "AmmoInClip") : nullptr;
         if (ammo) {
             int& top = s.maxAmmo[item];
@@ -894,6 +919,8 @@ void Tick()
     } else {
         snap.why.fill("Load a save first.");
         snap.valueWhy.fill("Load a save first.");
+        snap.powersWhy = "Load a save first.";
+        snap.powers = {};
         snap.money = snap.shopLevel = -1;
         std::lock_guard lock(g_espMutex);
         g_esp = {};
@@ -933,6 +960,8 @@ Snapshot GetSnapshot()
         snap.health = 74, snap.maxHealth = 100, snap.suffering = 45, snap.maxSuffering = 100;
         snap.money = 1040, snap.shopLevel = 2;
         snap.map = snap.slots[0] = "MAP_EP_5";
+        snap.powers = {true, false, false};
+        snap.powersWhy.clear();
         return snap;
     }
     // The tick never runs without the engine hooks: grey everything out here.
@@ -940,6 +969,7 @@ Snapshot GetSnapshot()
         snap.reflection = false;
         snap.why.fill("Game engine not hooked: see KetamineMenu.log.");
         snap.valueWhy.fill("Game engine not hooked: see KetamineMenu.log.");
+        snap.powersWhy = "Game engine not hooked: see KetamineMenu.log.";
     }
     return snap;
 }
@@ -1121,6 +1151,19 @@ void CompleteObjective(uint64_t fname)
         Call c(Cdo("ObjectiveFunctions"), "CompleteObjective");
         bool ok = c.Arg(0, s.pc.Get()).Arg(1, fname).Arg(2, true).Arg(3, 3.f).Run() && c.Out<bool>("ReturnValue");
         km::Log("Complete objective %s: %s", NameToString(&fname).c_str(), ok ? "OK" : "refused by the game");
+    });
+}
+
+void UnlockPower(Power power)
+{
+    OnGame([power](UObject* player) {
+        // A gameplay tag is just its FName: let the engine turn the tag's text into one.
+        std::wstring text(kPowerTags[power], kPowerTags[power] + strlen(kPowerTags[power]));
+        FString str{text.data(), int32_t(text.size() + 1), int32_t(text.size() + 1)};
+        Call name(Cdo("KismetStringLibrary"), "Conv_StringToName");
+        uint64_t tag = name.Arg(0, str).Run() ? name.Out<uint64_t>("ReturnValue") : 0;
+        bool ok = tag && Call(player, "AddGenesisConfigurationAbility").Arg(0, tag).Run();
+        km::Log("Unlock %s (%s): %s", kPowerNames[power], tag ? NameToString(&tag).c_str() : "no tag", ok ? "called" : "failed");
     });
 }
 
