@@ -596,6 +596,8 @@ void TabWorld(const feat::Snapshot& s)
     SliderRow(feat::Fov, "Field of view", "%.0f°", s, "Locks the camera field of view. Default gives control back to the game.",
               "Default");
     ToggleRow(feat::HideHUD, s);
+    Section("LOCKS");
+    ToggleRow(feat::AutoLockpick, s);
 }
 
 void TabProgress(const feat::Snapshot& s)
@@ -668,7 +670,7 @@ void BindButton(const char* id, int target, unsigned key)
     ImGui::PopID();
 }
 
-void TabSettings(const feat::Snapshot&)
+void TabSettings(const feat::Snapshot& s)
 {
     Section("MENU");
     float avail = ImGui::GetContentRegionAvail().x, x0 = ImGui::GetCursorPosX();
@@ -708,12 +710,16 @@ void TabSettings(const feat::Snapshot&)
     if (ImGui::Button(T("Auto"))) setScale(0);
     ImGui::EndDisabled();
 
+    Section("GAME");
+    ToggleRow(feat::SkipIntros, s);
+
     Section("HOTKEYS");
     Hint("They work with the menu closed. Click a key, then press the new one. Backspace clears, Esc cancels.");
     if (ImGui::BeginTable("hotkeys", 2, ImGuiTableFlags_NoPadOuterX)) {
         ImGui::TableSetupColumn("Feature", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthFixed);
         for (int t = 0; t < feat::ToggleCount; t++) {
+            if (t == feat::SkipIntros) continue; // only matters at startup
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::AlignTextToFramePadding();

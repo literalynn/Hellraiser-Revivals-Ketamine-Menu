@@ -13,7 +13,7 @@ enum Toggle {
     GodMode, InfiniteHealth, NoSprintCooldown, OneHitKill, Invisible,
     InfiniteAmmo, NoSufferingCost, NoPowerCooldown, Unbreakable,
     Fly, Noclip,
-    FreezeAI, HideHUD, FreeCam,
+    FreezeAI, HideHUD, FreeCam, AutoLockpick, SkipIntros,
     Esp, EspBox, EspHealth, EspName, EspDistance, EspSkeleton, EspHead, EspChams, EspSnaplines, EspOffscreen,
     EspItems, EspContainers, EspSavePoints,
     ToggleCount

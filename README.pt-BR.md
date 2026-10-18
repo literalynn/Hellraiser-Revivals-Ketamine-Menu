@@ -94,6 +94,7 @@ na dica, em vez de fechar o jogo.
 - Armas corpo a corpo inquebráveis
 - Poderes da Configuração Gênesis sem custo de Sofrimento
 - Poderes sem recarga, encher o Sofrimento
+- Desbloquear Telecinese, Pirocinese e Correntes infernais antes da história
 
 **Movimento**
 - Voar e noclip para onde você olha, com as teclas de movimento de sempre ou o controle
@@ -118,6 +119,8 @@ na dica, em vez de fechar o jogo.
 - Escala de tempo (câmera lenta / acelerar)
 - Congelar inimigos, matar inimigos próximos
 - Editor de campo de visão (FOV, de 50° a 130°, ao vivo), ocultar HUD
+- Arrombamento automático: as fechaduras abrem sozinhas
+- Pular os logos e avisos ao iniciar (uns 30 s a menos)
 
 **Progresso**
 - Ver objetivos ativos e concluídos, concluir um, mudar o nível da loja

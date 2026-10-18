@@ -33,6 +33,9 @@ const ToggleInfo kToggles[ToggleCount] = {
     {"FreezeAI", "Freeze enemies", "Enemies stop moving and attacking."},
     {"HideHUD", "Hide HUD", "Hides the game interface (menus you open later stay visible)."},
     {"FreeCam", "Free camera", "Detached camera: movement keys to move, mouse to look. Your character stays in place."},
+    {"AutoLockpick", "Auto lockpick", "Locks open by themselves a moment after you start picking them."},
+    {"SkipIntros", "Skip intros",
+     "Skips the logos and notices when the game starts. The EULA and brightness screens still show the first time."},
     {"Esp", "ESP", "Shows enemies and objects through walls."},
     {"EspBox", "Box", "Corner box around each enemy.", true},
     {"EspHealth", "Health bar", "Enemy health next to the box.", true},
@@ -85,6 +88,9 @@ Snapshot g_snap;
 struct State {
     Weak pc, player, attrs, cmc, cheat, objectives;
     Weak cheatPawn; // the pawn the tag-based cheats (invisible, infinite ammo) were applied to
+    uint64_t lockAt = 0;                 // when the current lockpick close-up opened (UINT64_MAX: already opened)
+    uint64_t splashAt = 0, splashSince = 0; // last / first look for the startup splash screens
+    bool introsDone = false;
     std::map<std::string, Weak> cdo;
     std::map<std::string, Weak> items;
     std::vector<Weak> enemies;
@@ -714,6 +720,25 @@ void TickPlayer(UObject* player, uint64_t now, Snapshot& snap)
             *ammo = top;
         }
     }
+    // Auto lockpick: once a lockpick close-up has been open for a moment, let the game's own puzzle skip open it.
+    // The player state points at the puzzle task only while a puzzle is open, so the class lookups stay rare.
+    auto flag = [](UObject* o, const char* name) {
+        bool v = false;
+        return GetBool(o, name, &v) && v;
+    };
+    UObject* task = g_on[AutoLockpick] ? Ptr(Ptr(pc, "PlayerState"), "PuzzleRef") : nullptr;
+    UObject* puzzle = task && IsA(task, FindClass("BP_TASK_FocusEnvPuzzle_C")) ? Ptr(task, "PuzzleActorRef") : nullptr;
+    if (!puzzle || !IsA(puzzle, FindClass("BP_EnvPuzzleBaseActor_LockpickPuzzle_C")) || !flag(puzzle, "bPuzzleActive") ||
+        flag(puzzle, "PuzzleFinished")) {
+        s.lockAt = 0;
+    } else if (!s.lockAt) {
+        s.lockAt = now;
+    } else if (s.lockAt != UINT64_MAX && now - s.lockAt > 600) {
+        s.lockAt = UINT64_MAX; // once per close-up
+        bool ok = Call(task, "SkipPuzzle").Run() || Call(puzzle, "PuzzleSkipped").Run();
+        km::Log("Auto lockpick: %s", ok ? "lock opened" : "the puzzle can't be skipped");
+    }
+
     if (!FindProp(ClassOf(player), "bIgnoreSufferingCost")) why[NoSufferingCost] = "Suffering settings not found.";
     if (Track(NoSufferingCost, [&] {
             SetBool(player, "bIgnoreSufferingCost", false);
@@ -867,6 +892,34 @@ void SlowRefresh(UObject* player, Snapshot& snap)
     for (auto& c : cps) snap.checkpoints.push_back(c.second);
 }
 
+// Startup logos and notices: as soon as the splash widget exists, mark each screen skipped and shrink its durations
+// so it ends at once through its own flow. The interactive screens (EULA, brightness) are left alone.
+void TickIntros(uint64_t now)
+{
+    if (s.introsDone || !g_on[SkipIntros] || now - s.splashAt < 100) return;
+    if (!s.splashAt) s.splashSince = now;
+    s.splashAt = now;
+    if (now - s.splashSince > 60000) s.introsDone = true; // missed them (menu loaded late): stop scanning
+    UObject* splash = nullptr; // the live widget, not a template: the one whose screens exist
+    ForEachInstance(FindClass("W_SplashScreens_C"), [&](UObject* o) {
+        if (Ptr(o, "W_SplashScreen_Saber")) splash = o;
+        return !splash;
+    });
+    int changed = 0;
+    for (const char* name : {"W_SplashScreen_Warning", "W_SplashScreen_UE", "W_SplashScreen_Saber", "W_SplashScreen_BTG",
+                             "W_SplashScreen_Photosensitivty", "W_SplashScreen_JoyCon", "W_SplashScreen_AutoSave"}) {
+        UObject* screen = Ptr(splash, name);
+        if (!screen) continue;
+        changed++;
+        SetBool(screen, "bSkip", true);
+        for (const char* d : {"StayDuration", "FadeDuration"})
+            if (double* v = Member<double>(screen, d)) *v = 0.01;
+    }
+    if (!changed) return; // not created yet (or its screens aren't built yet)
+    s.introsDone = true;
+    km::Log("Intros: %d splash screens skipped", changed);
+}
+
 void Tick()
 {
     uint64_t now = GetTickCount64();
@@ -909,6 +962,8 @@ void Tick()
     }
 
     snap.player = player != nullptr;
+    if (player) s.introsDone = true; // the intros only play before the first save is loaded
+    TickIntros(now);
     if (player) {
         TickPlayer(player, now, snap);
         TickEsp(s.pc.Get(), player, now);
@@ -918,6 +973,7 @@ void Tick()
         }
     } else {
         snap.why.fill("Load a save first.");
+        snap.why[SkipIntros].clear(); // works from the title screen
         snap.valueWhy.fill("Load a save first.");
         snap.powersWhy = "Load a save first.";
         snap.powers = {};

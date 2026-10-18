@@ -94,6 +94,7 @@ avec la raison dans une infobulle, au lieu de faire planter le jeu.
 - Armes de mêlée incassables
 - Pouvoirs de la Configuration Genesis sans coût en Souffrance
 - Pouvoirs sans recharge, remplir la Souffrance
+- Débloquer Télékinésie, Pyrokinésie et Chaînes infernales avant l'histoire
 
 **Déplacement**
 - Vol et noclip vers là où vous regardez, avec vos touches de déplacement habituelles ou la manette
@@ -118,6 +119,8 @@ avec la raison dans une infobulle, au lieu de faire planter le jeu.
 - Vitesse du temps (ralenti / accéléré)
 - Figer les ennemis, tuer les ennemis proches
 - Éditeur de champ de vision (FOV, de 50° à 130°, en direct), masquer le HUD
+- Crochetage auto : les serrures s'ouvrent toutes seules
+- Passer les logos et avertissements au lancement (environ 30 s de gagnées)
 
 **Progression**
 - Voir les objectifs en cours et terminés, en terminer un, changer le niveau de la boutique

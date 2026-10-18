@@ -94,6 +94,7 @@ out with the reason in a tooltip instead of crashing.
 - Unbreakable melee weapons
 - Genesis Configuration powers with no Suffering cost
 - No power cooldown, refill Suffering
+- Unlock Telekinesis, Pyrokinesis and Hellchains before the story does
 
 **Movement**
 - Fly and noclip, towards where you look, with your usual movement keys or gamepad
@@ -118,6 +119,8 @@ out with the reason in a tooltip instead of crashing.
 - Time scale (slow motion / fast forward)
 - Freeze enemies, kill enemies nearby
 - FOV editor (50° to 130°, live), hide HUD
+- Auto lockpick: locks open by themselves
+- Skip the logos and notices at startup (about 30 s saved)
 
 **Progress**
 - See active and completed objectives, complete one, change the shop level

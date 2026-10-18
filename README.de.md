@@ -94,6 +94,7 @@ der Grund steht im Tooltip, statt dass das Spiel abstürzt.
 - Unzerstörbare Nahkampfwaffen
 - Kräfte der Genesis-Konfiguration ohne Leid-Kosten
 - Keine Abklingzeit für Kräfte, Leid auffüllen
+- Telekinese, Pyrokinese und Höllenketten vor der Story freischalten
 
 **Bewegung**
 - Fliegen und Noclip in Blickrichtung, mit deinen üblichen Bewegungstasten oder dem Gamepad
@@ -118,6 +119,8 @@ der Grund steht im Tooltip, statt dass das Spiel abstürzt.
 - Zeitskala (Zeitlupe / Zeitraffer)
 - Gegner einfrieren, Gegner in der Nähe töten
 - Sichtfeld-Editor (FOV, 50° bis 130°, live), HUD ausblenden
+- Auto-Schlossknacken: Schlösser öffnen sich von selbst
+- Logos und Hinweise beim Start überspringen (rund 30 s gespart)
 
 **Fortschritt**
 - Aktive und abgeschlossene Ziele ansehen, ein Ziel abschließen, Shop-Stufe ändern

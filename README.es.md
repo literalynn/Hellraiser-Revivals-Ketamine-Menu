@@ -94,6 +94,7 @@ Cada opción busca los datos del juego **por su nombre mientras se ejecuta**. Si
 - Armas cuerpo a cuerpo irrompibles
 - Poderes de la Configuración Génesis sin coste de Sufrimiento
 - Poderes sin enfriamiento, llenar Sufrimiento
+- Desbloquear Telequinesis, Piroquinesis y Cadenas infernales antes que la historia
 
 **Movimiento**
 - Volar y noclip hacia donde miras, con tus teclas de movimiento habituales o el mando
@@ -118,6 +119,8 @@ Cada opción busca los datos del juego **por su nombre mientras se ejecuta**. Si
 - Escala de tiempo (cámara lenta / avance rápido)
 - Congelar enemigos, matar enemigos cercanos
 - Editor de campo de visión (FOV, de 50° a 130°, en vivo), ocultar HUD
+- Ganzúa automática: las cerraduras se abren solas
+- Saltar los logotipos y avisos al iniciar (unos 30 s menos)
 
 **Progreso**
 - Ver objetivos activos y completados, completar uno, cambiar el nivel de la tienda
