@@ -501,6 +501,7 @@ void TabEsp(const feat::Snapshot& s)
 {
     Section("ESP");
     ToggleRow(feat::Esp, s);
+    ToggleRow(feat::EspAimFov, s); // independent of the ESP switch
     ImGui::BeginDisabled(!feat::g_on[feat::Esp]);
     Section("ENEMIES");
     for (Toggle t : {feat::EspBox, feat::EspHealth, feat::EspName, feat::EspDistance, feat::EspSkeleton, feat::EspHead,
@@ -956,7 +957,7 @@ bool IsOpen() { return g_open; }
 
 bool WantsFrame()
 {
-    if (g_open || feat::g_on[feat::Esp] || feat::g_on[feat::SilentAim]) return true;
+    if (g_open || feat::g_on[feat::Esp] || (feat::g_on[feat::SilentAim] && feat::g_on[feat::EspAimFov])) return true;
     std::lock_guard lock(g_toastMutex);
     return !g_toasts.empty();
 }

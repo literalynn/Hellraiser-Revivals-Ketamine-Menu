@@ -557,6 +557,15 @@ const char* const kTable[][Count] = {
      "Puntos de guardado", "Pontos de salvamento"},
     {"Where you can save.", "可以存档的地方。", "セーブできる場所。", "저장할 수 있는 곳.", "Где можно сохраниться.",
      "Wo du speichern kannst.", "Là où vous pouvez sauvegarder.", "Donde puedes guardar.", "Onde você pode salvar."},
+    {"Aim FOV circle", "自瞄范围圆圈", "エイム範囲の円", "조준 범위 원", "Круг радиуса прицела", "Ziel-FOV-Kreis",
+     "Cercle du FOV de visée", "Círculo del FOV de puntería", "Círculo do FOV da mira"},
+    {"Shows the silent aim circle around the crosshair while silent aim is on.", "开启静默自瞄时，在准星周围显示自瞄圆圈。",
+     "サイレントエイムがオンのとき、照準のまわりに円を表示します。", "사일런트 에임이 켜져 있을 때 조준점 주변에 원을 표시합니다.",
+     "Показывает круг тихого аимбота вокруг прицела, когда он включён.",
+     "Zeigt den Silent-Aim-Kreis um das Fadenkreuz, solange Silent Aim an ist.",
+     "Affiche le cercle de la visée silencieuse autour du viseur quand elle est activée.",
+     "Muestra el círculo del aim silencioso alrededor de la mira cuando está activado.",
+     "Mostra o círculo da mira silenciosa ao redor da mira quando ela está ligada."},
 };
 
 const char* const* Row(std::string_view en)

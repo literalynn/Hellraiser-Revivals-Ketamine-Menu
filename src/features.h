@@ -15,7 +15,7 @@ enum Toggle {
     Fly, Noclip,
     FreezeAI, HideHUD, FreeCam, AutoLockpick, SkipIntros,
     Esp, EspBox, EspHealth, EspName, EspDistance, EspSkeleton, EspHead, EspChams, EspSnaplines, EspOffscreen,
-    EspItems, EspContainers, EspSavePoints,
+    EspItems, EspContainers, EspSavePoints, EspAimFov,
     ToggleCount
 };
 
@@ -86,7 +86,9 @@ struct EspFrame {
     bool active = false; // ESP data below
     bool camera = false; // camera read in the same frame (also drawn for the aim circle)
     Vec3 camLoc, camRot; // camRot: x pitch, y yaw, z roll (degrees)
-    float fov = 0;       // horizontal
+    float fov = 0;
+    uint8_t fovAxis = 1; // EAspectRatioAxisConstraint: 0 = fov is vertical, 1 = horizontal, 2 = along the longer side
+    float aspect = 0;    // > 0: the picture is letterboxed to this aspect ratio (fov horizontal within it)
     std::vector<EspEnemy> enemies;
     std::vector<EspThing> things;
 };

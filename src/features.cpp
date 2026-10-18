@@ -51,6 +51,7 @@ const ToggleInfo kToggles[ToggleCount] = {
     {"EspItems", "Items on the ground", "Ammo, money, healing, weapons and materials you can pick up.", true},
     {"EspContainers", "Loot containers", "Chests, shelves and breakable crates."},
     {"EspSavePoints", "Save points", "Where you can save."},
+    {"EspAimFov", "Aim FOV circle", "Shows the silent aim circle around the crosshair while silent aim is on.", true},
 };
 
 const ValueInfo kValues[ValueCount] = {
@@ -94,6 +95,8 @@ struct State {
     uint64_t splashAt = 0, splashSince = 0; // last / first look for the startup splash screens
     bool introsDone = false;
     bool aimHooked = false, aimFailed = false;
+    uint8_t fovAxis = 255; // unknown until read (logged when it changes)
+    uint64_t fovAxisAt = 0;
     std::map<std::string, Weak> cdo;
     std::map<std::string, Weak> items;
     std::vector<Weak> enemies;
@@ -321,6 +324,17 @@ int ItemCount(UObject* item, bool withStash = false)
     Call c(ItemManager(), "GetItemCountInInventory");
     return c && c.Arg(0, s.player.Get()).Arg(1, item).Arg(2, false).Arg(3, withStash).Run() ? c.Out<int32_t>("ReturnValue")
                                                                                              : -1;
+}
+
+// Pickups of this item lying in the level.
+std::vector<UObject*> Pickables(UObject* item)
+{
+    std::vector<UObject*> out;
+    ForEachInstance(FindClass("CorePickable"), [&](UObject* o) {
+        if (Ptr(o, "Item") == item) out.push_back(o);
+        return true;
+    });
+    return out;
 }
 
 void RefreshEnemies(uint64_t now)
@@ -589,8 +603,9 @@ void RefreshWorld(uint64_t now)
     }
 }
 
-// The player's camera this frame: PlayerCameraManager.CameraCachePrivate.POV.{Location, Rotation, FOV}.
-bool ReadPov(UObject* pc, Vec& loc, Vec& rot, float& fov)
+// The player's camera this frame: PlayerCameraManager.CameraCachePrivate.POV.{Location, Rotation, FOV}, and the
+// aspect ratio it is letterboxed to, if any (bConstrainAspectRatio / AspectRatio).
+bool ReadPov(UObject* pc, Vec& loc, Vec& rot, float& fov, float* aspect = nullptr)
 {
     UObject* pcm = Ptr(pc, "PlayerCameraManager");
     Prop cache = pcm ? FindProp(ClassOf(pcm), "CameraCachePrivate") : Prop{};
@@ -603,13 +618,40 @@ bool ReadPov(UObject* pc, Vec& loc, Vec& rot, float& fov)
     std::memcpy(&loc, base + l.offset, sizeof(Vec));
     std::memcpy(&rot, base + r.offset, sizeof(Vec)); // FRotator: pitch, yaw, roll as doubles
     std::memcpy(&fov, base + f.offset, sizeof(float));
+    if (aspect) {
+        Prop constrain = FindProp(view, "bConstrainAspectRatio"), ratio = FindProp(view, "AspectRatio");
+        *aspect = constrain.boolMask && ratio && (base[constrain.offset] & constrain.boolMask)
+                      ? *reinterpret_cast<const float*>(base + ratio.offset)
+                      : 0.f;
+    }
     return fov > 5 && fov < 170;
+}
+
+// How the game turns FOV into a picture: ULocalPlayer.AspectRatioAxisConstraint, unless the camera overrides it.
+// This game keeps the vertical FOV: reading FOV as horizontal put the ESP ~1.8x too far from the centre on 16:9.
+uint8_t FovAxis(UObject* pc, UObject* player)
+{
+    uint8_t* local = Member<uint8_t>(Ptr(pc, "Player"), "AspectRatioAxisConstraint");
+    uint8_t axis = local ? *local : 1;
+    Call cam(player, "GetComponentByClass");
+    UObject* c = cam.Arg(0, FindClass("CameraComponent")).Run() ? cam.Out<UObject*>("ReturnValue") : nullptr;
+    bool over = false;
+    if (c && GetBool(c, "bOverrideAspectRatioAxisConstraint", &over) && over)
+        if (uint8_t* own = Member<uint8_t>(c, "AspectRatioAxisConstraint")) axis = *own;
+    return axis;
 }
 
 void TickEsp(UObject* pc, UObject* player, uint64_t now)
 {
     EspFrame f;
-    f.camera = ReadPov(pc, f.camLoc, f.camRot, f.fov);
+    f.camera = ReadPov(pc, f.camLoc, f.camRot, f.fov, &f.aspect);
+    if (now - s.fovAxisAt > 1000) { // a setting, not per-frame state
+        s.fovAxisAt = now;
+        uint8_t axis = FovAxis(pc, player);
+        if (axis != s.fovAxis) km::Log("ESP: FOV axis %s", axis == 0 ? "vertical" : axis == 1 ? "horizontal" : "major");
+        s.fovAxis = axis;
+    }
+    f.fovAxis = s.fovAxis;
     f.active = g_on[Esp] && f.camera;
     if (f.active) {
         Vec me = Location(player);
@@ -666,7 +708,7 @@ void TickEsp(UObject* pc, UObject* player, uint64_t now)
 void TickFrame()
 {
     UObject* player = s.player.Get();
-    if (player && (g_on[Esp] || g_on[SilentAim])) return TickEsp(s.pc.Get(), player, GetTickCount64());
+    if (player && (g_on[Esp] || (g_on[SilentAim] && g_on[EspAimFov]))) return TickEsp(s.pc.Get(), player, GetTickCount64());
     std::lock_guard lock(g_espMutex);
     g_esp = {};
 }
@@ -1189,17 +1231,19 @@ void GiveItem(const std::string& name, int count)
         int before = ItemCount(item, true);
         Call cheat(CheatManager(), "K2_GiveItem");
         if (cheat && cheat.Arg(0, item).Arg(1, count).Run()) {
-            // The game's own give drops what doesn't fit at your feet: never give again on top of it (the fallback
-            // used to run here with a full inventory and drop the item a second and third time).
             int after = ItemCount(item, true);
             km::Log("Give %s x%d via cheat manager: %d -> %d", name.c_str(), count, before, after);
-            menu::Toast(after > before ? "+" + std::to_string(after - before) + "  " + Pretty(name)
-                                       : lang::T("Inventory full: dropped at your feet"));
-            return;
+            if (after > before) {
+                menu::Toast("+" + std::to_string(after - before) + "  " + Pretty(name));
+                return;
+            }
+            // Nothing added: the inventory is full and the developers' give does nothing then. The game's own
+            // inventory code below drops what doesn't fit.
         }
-        // Fallback when the developers' cheat is unavailable: the game's own inventory code.
         UObject* im = ItemManager();
         UClass* stackable = FindClass("ItemInfoStackable");
+        std::vector<UObject*> lying = Pickables(item);
+        bool stack = false;
         for (int i = 0, left = count; left > 0 && i < 50; i++) {
             Call create(im, "CreateAndInitializeItem");
             if (!create.Arg(0, item).Arg(1, player).Run()) break;
@@ -1209,16 +1253,26 @@ void GiveItem(const std::string& name, int count)
             if (IsA(info, stackable)) {
                 n = left;
                 *Member<int32_t>(info, "StackableCount") = n;
+                stack = true;
             }
             Call(im, "AddItemInInventory").Arg(0, info).Arg(1, player).Arg(2, false).Arg(3, false).Arg(4, false).Run();
             left -= n;
         }
         int after2 = ItemCount(item, true);
-        km::Log("Give %s x%d: %s via item manager (%d -> %d)", name.c_str(), count, after2 > before ? "OK" : "FAILED",
-                before, after2);
+        // With a full inventory that code drops each item about three times: keep only as many as were asked for.
+        int dropped = 0, removed = 0, keep = stack ? 1 : std::min(count, 50);
+        for (UObject* p : Pickables(item)) {
+            if (std::find(lying.begin(), lying.end(), p) != lying.end()) continue;
+            if (dropped < keep) dropped++;
+            else if (Call(p, "K2_DestroyActor").Run()) removed++;
+        }
+        km::Log("Give %s x%d via item manager: %d -> %d, %d dropped, %d extra copies removed", name.c_str(), count,
+                before, after2, dropped, removed);
         char failed[160];
         snprintf(failed, sizeof(failed), lang::T("Couldn't give %s"), Pretty(name).c_str());
-        menu::Toast(after2 > before ? "+" + std::to_string(after2 - before) + "  " + Pretty(name) : failed);
+        menu::Toast(after2 > before ? "+" + std::to_string(after2 - before) + "  " + Pretty(name)
+                    : dropped       ? std::string(lang::T("Inventory full: dropped at your feet"))
+                                    : std::string(failed));
     });
 }
 

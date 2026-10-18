@@ -40,7 +40,11 @@ bool ReadView(const feat::EspFrame& f, View& v)
     ImVec2 ds = ImGui::GetIO().DisplaySize;
     v.cx = ds.x * 0.5f;
     v.cy = ds.y * 0.5f;
-    v.focal = v.cx / std::tan(float(fov * 0.5 * kDeg)); // horizontal FOV (Unreal's default axis)
+    // Unreal's projection: the FOV spans the width (MaintainXFOV, or MajorAxisFOV on a landscape screen), else the
+    // height; a letterboxed view spans the width of its box.
+    float t = std::tan(float(fov * 0.5 * kDeg));
+    bool across = f.fovAxis == 1 || (f.fovAxis == 2 && ds.x >= ds.y);
+    v.focal = f.aspect > 0 ? std::min(ds.x, ds.y * f.aspect) * 0.5f / t : (across ? v.cx : v.cy) / t;
     return true;
 }
 
@@ -180,14 +184,15 @@ void DrawThing(ImDrawList* dl, const View& v, const feat::EspThing& t, float s)
 
 void Draw()
 {
-    if (!g_on[feat::Esp] && !g_on[feat::SilentAim]) return;
+    bool circle = g_on[feat::SilentAim] && g_on[feat::EspAimFov];
+    if (!g_on[feat::Esp] && !circle) return;
     feat::EspFrame f = feat::GetEspFrame();
     View v;
     if (!ReadView(f, v)) return;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     float s = ImGui::GetStyle().FontScaleMain;
 
-    if (g_on[feat::SilentAim]) { // the aim FOV: enemies whose head is inside the circle can be targeted
+    if (circle) { // the aim FOV: enemies whose head is inside the circle can be targeted
         float r = v.focal * std::tan(float(feat::g_value[feat::AimFov] * kDeg));
         dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Black, 0.5f)), 96, 3.f * s);
         dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Violet, 0.85f)), 96, 1.3f * s);
