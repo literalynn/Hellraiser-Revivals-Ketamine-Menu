@@ -94,6 +94,7 @@ struct DropWatch {
     std::vector<UObject*> lying, kept; // pickups there before the give / the ones we leave on the ground
     int keep, removed = 0;
     uint64_t until;
+    Vec3 at; // where the player stood: only pickups within 5 m of it are ours
 };
 
 // Game-thread state.
@@ -349,26 +350,41 @@ std::vector<UObject*> Pickables(UObject* item)
 
 // The watch for this item's drops, extended by 2 s: one per item, so quick repeated gives add up instead of each
 // removing the others' drops as extra copies.
-DropWatch& WatchDrops(UObject* item, const std::string& name, const std::vector<UObject*>& lying)
+DropWatch& WatchDrops(UObject* item, const std::string& name, const std::vector<UObject*>& lying, Vec at)
 {
-    uint64_t until = GetTickCount64() + 2000;
+    // 6 s: the first drop of an item can wait for its mesh to load before its copy appears.
+    uint64_t until = GetTickCount64() + 6000;
     for (DropWatch& w : s.dropWatch)
         if (w.item == item) {
             w.until = until;
+            w.at = at;
             return w;
         }
-    s.dropWatch.push_back(DropWatch{item, name, lying, {}, 0, 0, until});
+    s.dropWatch.push_back(DropWatch{item, name, lying, {}, 0, 0, until, at});
     return s.dropWatch.back();
+}
+
+// A pickup the player can see: not hidden (hidden copies may be the game's own bookkeeping: left alone).
+// Not bItemIsActive: pickups lying in plain sight have it off.
+bool OnTheGround(UObject* p)
+{
+    bool hidden = false;
+    GetBool(p, "bHidden", &hidden);
+    return !hidden;
 }
 
 void TrimDrops(DropWatch& w)
 {
     for (UObject* p : Pickables(w.item)) {
         if (std::find(w.lying.begin(), w.lying.end(), p) != w.lying.end() ||
-            std::find(w.kept.begin(), w.kept.end(), p) != w.kept.end())
+            std::find(w.kept.begin(), w.kept.end(), p) != w.kept.end() || !OnTheGround(p))
             continue;
-        if (int(w.kept.size()) < w.keep) w.kept.push_back(p);
+        double d = Distance(Location(p), w.at);
+        if (d > 500) continue; // not from this give (or still flying: looked at again next time)
+        bool keep = int(w.kept.size()) < w.keep;
+        if (keep) w.kept.push_back(p);
         else if (Call(p, "K2_DestroyActor").Run()) w.removed++;
+        km::Log("Give %s: pickup %s %s (%.1f m away)", w.name.c_str(), Name(p).c_str(), keep ? "kept" : "removed", d / 100);
     }
 }
 
@@ -608,6 +624,7 @@ void RefreshWorld(uint64_t now)
     UClass* crate = g_on[EspContainers] ? FindClass("BPD_DestructableLoot_C") : nullptr;
     UClass* save = g_on[EspSavePoints] ? FindClass("BP_TASK_SavePoint_C") : nullptr;
     std::vector<std::pair<UObject*, EspThing>> found;
+    int pickups = 0, inactive = 0, hiddenCount = 0, empty = 0; // logged below: why pickups are (not) shown
     ForEachObject([&](UObject* o) { // one pass for every kind
         if (IsDefaultObject(o)) return true;
         EspThing t;
@@ -616,7 +633,12 @@ void RefreshWorld(uint64_t now)
             GetBool(o, "bItemIsActive", &active);
             GetBool(o, "bHidden", &hidden);
             UObject* item = Ptr(o, "Item");
-            if (!active || hidden || !item) return true;
+            pickups++;
+            inactive += !active;
+            hiddenCount += hidden;
+            empty += !item;
+            // Not bItemIsActive: the user saw pickups lying in plain sight that the ESP skipped because of it.
+            if (hidden || !item) return true;
             t.label = Name(item);
             int* stack = Member<int32_t>(o, "StackableCount");
             if (stack && *stack > 1) t.label += "  x" + std::to_string(*stack);
@@ -635,6 +657,16 @@ void RefreshWorld(uint64_t now)
     for (auto& [o, t] : found) {
         t.pos = Location(o);
         g_world.push_back(std::move(t));
+    }
+    static uint64_t loggedAt;
+    static std::string logged;
+    char summary[160];
+    snprintf(summary, sizeof(summary), "%d pickups (%d inactive, %d hidden, %d without item), %zu things kept", pickups,
+             inactive, hiddenCount, empty, g_world.size());
+    if (summary != logged && now - loggedAt > 10000) {
+        loggedAt = now;
+        logged = summary;
+        km::Log("World ESP: %s", summary);
     }
 }
 
@@ -1347,7 +1379,7 @@ void GiveItem(const std::string& name, int count)
                 added += n;
                 continue;
             }
-            if (!watch) watch = &WatchDrops(item, name, lying);
+            if (!watch) watch = &WatchDrops(item, name, lying, Location(player));
             watch->keep++;
             dropped += n;
         }
