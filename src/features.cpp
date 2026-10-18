@@ -28,6 +28,8 @@ const ToggleInfo kToggles[ToggleCount] = {
     {"NoSufferingCost", "Powers cost nothing", "Genesis Configuration powers use no Suffering, and it stays full."},
     {"NoPowerCooldown", "No power cooldown", "Removes telekinesis and pyrokinesis cooldowns."},
     {"Unbreakable", "Unbreakable melee weapons", "Melee weapons never lose durability."},
+    {"SilentAim", "Silent aim",
+     "Your shots hit the head of the enemy nearest the crosshair, inside the circle. The camera doesn't move."},
     {"Fly", "Fly", "Flies where you look, with your usual movement keys or stick."},
     {"Noclip", "Noclip", "Fly through walls, where you look, with your usual movement keys."},
     {"FreezeAI", "Freeze enemies", "Enemies stop moving and attacking."},
@@ -54,7 +56,7 @@ const ToggleInfo kToggles[ToggleCount] = {
 const ValueInfo kValues[ValueCount] = {
     {"DamageMult", 1, 1, 50}, {"SpeedMult", 1, 0.5f, 5}, {"JumpMult", 1, 1, 10},
     {"TimeScale", 1, 0.1f, 4}, {"Fov", 0, 0, 130},       {"KillRadius", 20, 5, 100},
-    {"EspRange", 80, 10, 300}, {"EspWorldRange", 30, 5, 150},
+    {"EspRange", 80, 10, 300}, {"EspWorldRange", 30, 5, 150}, {"AimFov", 8, 1, 45},
 };
 
 const char* const kPowerNames[PowerCount] = {"Telekinesis", "Pyrokinesis", "Hellchains"};
@@ -91,6 +93,7 @@ struct State {
     uint64_t lockAt = 0;                 // when the current lockpick close-up opened (UINT64_MAX: already opened)
     uint64_t splashAt = 0, splashSince = 0; // last / first look for the startup splash screens
     bool introsDone = false;
+    bool aimHooked = false, aimFailed = false;
     std::map<std::string, Weak> cdo;
     std::map<std::string, Weak> items;
     std::vector<Weak> enemies;
@@ -313,10 +316,11 @@ UObject* FindItem(const std::string& name)
     return w.Get();
 }
 
-int ItemCount(UObject* item)
+int ItemCount(UObject* item, bool withStash = false)
 {
     Call c(ItemManager(), "GetItemCountInInventory");
-    return c && c.Arg(0, s.player.Get()).Arg(1, item).Arg(2, false).Arg(3, false).Run() ? c.Out<int32_t>("ReturnValue") : -1;
+    return c && c.Arg(0, s.player.Get()).Arg(1, item).Arg(2, false).Arg(3, withStash).Run() ? c.Out<int32_t>("ReturnValue")
+                                                                                             : -1;
 }
 
 void RefreshEnemies(uint64_t now)
@@ -585,25 +589,29 @@ void RefreshWorld(uint64_t now)
     }
 }
 
+// The player's camera this frame: PlayerCameraManager.CameraCachePrivate.POV.{Location, Rotation, FOV}.
+bool ReadPov(UObject* pc, Vec& loc, Vec& rot, float& fov)
+{
+    UObject* pcm = Ptr(pc, "PlayerCameraManager");
+    Prop cache = pcm ? FindProp(ClassOf(pcm), "CameraCachePrivate") : Prop{};
+    Prop pov = cache.inner ? FindProp(static_cast<const UClass*>(cache.inner), "POV") : Prop{};
+    auto* view = static_cast<const UClass*>(pov.inner);
+    Prop l = view ? FindProp(view, "Location") : Prop{}, r = view ? FindProp(view, "Rotation") : Prop{},
+         f = view ? FindProp(view, "FOV") : Prop{};
+    if (!l || !r || !f) return false;
+    const uint8_t* base = reinterpret_cast<const uint8_t*>(pcm) + cache.offset + pov.offset;
+    std::memcpy(&loc, base + l.offset, sizeof(Vec));
+    std::memcpy(&rot, base + r.offset, sizeof(Vec)); // FRotator: pitch, yaw, roll as doubles
+    std::memcpy(&fov, base + f.offset, sizeof(float));
+    return fov > 5 && fov < 170;
+}
+
 void TickEsp(UObject* pc, UObject* player, uint64_t now)
 {
     EspFrame f;
-    f.active = g_on[Esp];
+    f.camera = ReadPov(pc, f.camLoc, f.camRot, f.fov);
+    f.active = g_on[Esp] && f.camera;
     if (f.active) {
-        // Live camera: PlayerCameraManager.CameraCachePrivate.POV.{Location, Rotation, FOV}
-        UObject* pcm = Ptr(pc, "PlayerCameraManager");
-        Prop cache = pcm ? FindProp(ClassOf(pcm), "CameraCachePrivate") : Prop{};
-        Prop pov = cache.inner ? FindProp(static_cast<const UClass*>(cache.inner), "POV") : Prop{};
-        auto* view = static_cast<const UClass*>(pov.inner);
-        Prop loc = view ? FindProp(view, "Location") : Prop{}, rot = view ? FindProp(view, "Rotation") : Prop{},
-             fov = view ? FindProp(view, "FOV") : Prop{};
-        if (loc && rot && fov) {
-            uintptr_t base = reinterpret_cast<uintptr_t>(pcm) + cache.offset + pov.offset;
-            f.povLocation = base + loc.offset;
-            f.povRotation = base + rot.offset;
-            f.povFov = base + fov.offset;
-        }
-
         Vec me = Location(player);
         double range = g_value[EspRange] * 100.0, worldRange = g_value[EspWorldRange] * 100.0;
         bool bones = g_on[EspSkeleton] || g_on[EspChams] || g_on[EspHead];
@@ -652,6 +660,89 @@ void TickEsp(UObject* pc, UObject* player, uint64_t now)
     }
     std::lock_guard lock(g_espMutex);
     g_esp = std::move(f);
+}
+
+// Once per engine frame: the ESP and the aim circle follow the picture.
+void TickFrame()
+{
+    UObject* player = s.player.Get();
+    if (player && (g_on[Esp] || g_on[SilentAim])) return TickEsp(s.pc.Get(), player, GetTickCount64());
+    std::lock_guard lock(g_espMutex);
+    g_esp = {};
+}
+
+// ---- Silent aim. The fire ability asks UPlayerAbility_FireBase where each bullet's trace ends; we let the game
+// answer, then move the end behind the head of the enemy nearest the crosshair (within the aim FOV and in sight).
+
+Vec HeadOf(UObject* enemy)
+{
+    if (UObject* mesh = Ptr(enemy, "Mesh")) {
+        Skeleton& sk = SkeletonOf(mesh);
+        Call socket(mesh, "GetSocketLocation");
+        if (sk.head >= 0 && socket.Arg(0, sk.bones[size_t(sk.head)].first).Run()) return socket.Out<Vec>("ReturnValue");
+    }
+    Vec p = Location(enemy); // no head bone: upper part of the capsule
+    float* half = Member<float>(Ptr(enemy, "CapsuleComponent"), "CapsuleHalfHeight");
+    p.z += (half ? *half : 90.f) * 0.75;
+    return p;
+}
+
+bool AimPoint(Vec& out)
+{
+    UObject* pc = s.pc.Get();
+    Vec cam, rot;
+    float fov;
+    if (!pc || !ReadPov(pc, cam, rot, fov)) return false;
+    double cp = std::cos(rot.x * kDegToRad);
+    Vec fwd{cp * std::cos(rot.y * kDegToRad), cp * std::sin(rot.y * kDegToRad), std::sin(rot.x * kDegToRad)};
+    double best = std::cos(g_value[AimFov] * kDegToRad); // cosine of the angle to the crosshair: higher is closer
+    bool found = false;
+    RefreshEnemies(GetTickCount64());
+    ForEachEnemy([&](UObject* e) {
+        Attr h = GetAttr(EnemyAttributes(e), "Health");
+        if (h && h.Get() <= 0) return;
+        Vec head = HeadOf(e), d{head.x - cam.x, head.y - cam.y, head.z - cam.z};
+        double len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        if (len < 1) return;
+        double c = (d.x * fwd.x + d.y * fwd.y + d.z * fwd.z) / len;
+        if (c <= best) return;
+        Call sight(pc, "LineOfSightTo");
+        if (!sight.Arg(0, e).Arg(1, Vec{}).Arg(2, false).Run() || !sight.Out<bool>("ReturnValue")) return;
+        best = c;
+        found = true;
+        out = {head.x + d.x / len * 100, head.y + d.y / len * 100, head.z + d.z / len * 100}; // 1 m past the head
+    });
+    return found;
+}
+
+NativeThunk oTraceEnd, oAllTraceEnds;
+
+void Redirect(void* result, bool many)
+{
+    std::function<void()> work = [&] {
+        Vec p;
+        if (!result || !g_on[SilentAim] || !AimPoint(p)) return;
+        if (!many) {
+            *static_cast<Vec*>(result) = p;
+            return;
+        }
+        auto* ends = static_cast<TArray<Vec>*>(result);
+        for (int i = 0; i < ends->num; i++) ends->data[i] = p;
+    };
+    static int faults;
+    if (!Guard(work) && faults++ < 5) km::Log("Silent aim faulted (shot left as is)");
+}
+
+void hkTraceEnd(UObject* ctx, void* stack, void* result)
+{
+    oTraceEnd(ctx, stack, result);
+    Redirect(result, false);
+}
+
+void hkAllTraceEnds(UObject* ctx, void* stack, void* result) // shotguns: one end per pellet
+{
+    oAllTraceEnds(ctx, stack, result);
+    Redirect(result, true);
 }
 
 void TickPlayer(UObject* player, uint64_t now, Snapshot& snap)
@@ -720,6 +811,16 @@ void TickPlayer(UObject* player, uint64_t now, Snapshot& snap)
             *ammo = top;
         }
     }
+    // Silent aim: the shot functions are hooked the first time it's turned on (shots pass through untouched when off).
+    UClass* fire = FindClass("PlayerAbility_FireBase");
+    UFunction* traceEnd = FindFunction(fire, "GetTraceEndPosition");
+    if (g_on[SilentAim] && traceEnd && !s.aimHooked) {
+        s.aimHooked = true;
+        s.aimFailed = !HookNative(traceEnd, hkTraceEnd, &oTraceEnd);
+        if (UFunction* all = FindFunction(fire, "GetAllTraceEndPositions")) HookNative(all, hkAllTraceEnds, &oAllTraceEnds);
+    }
+    if (!traceEnd || s.aimFailed) why[SilentAim] = "The game's shot function wasn't found.";
+
     // Auto lockpick: once a lockpick close-up has been open for a moment, let the game's own puzzle skip open it.
     // The player state points at the puzzle task only while a puzzle is open, so the class lookups stay rare.
     auto flag = [](UObject* o, const char* name) {
@@ -966,7 +1067,6 @@ void Tick()
     TickIntros(now);
     if (player) {
         TickPlayer(player, now, snap);
-        TickEsp(s.pc.Get(), player, now);
         if (now - s.slowAt > 1500) {
             s.slowAt = now;
             SlowRefresh(player, snap);
@@ -1048,6 +1148,7 @@ void Init()
         }
     }
     SetTick(Tick);
+    SetFrameTick(TickFrame);
 }
 
 void Save()
@@ -1085,16 +1186,18 @@ void GiveItem(const std::string& name, int count)
     OnGame([name, count](UObject* player) {
         UObject* item = FindItem(name);
         if (!item || count <= 0) return;
-        int before = ItemCount(item);
+        int before = ItemCount(item, true);
         Call cheat(CheatManager(), "K2_GiveItem");
-        if (cheat) cheat.Arg(0, item).Arg(1, count).Run();
-        int after = ItemCount(item);
-        if (cheat && after > before) {
-            km::Log("Give %s x%d: OK via cheat manager (%d -> %d)", name.c_str(), count, before, after);
-            menu::Toast("+" + std::to_string(after - before) + "  " + Pretty(name));
+        if (cheat && cheat.Arg(0, item).Arg(1, count).Run()) {
+            // The game's own give drops what doesn't fit at your feet: never give again on top of it (the fallback
+            // used to run here with a full inventory and drop the item a second and third time).
+            int after = ItemCount(item, true);
+            km::Log("Give %s x%d via cheat manager: %d -> %d", name.c_str(), count, before, after);
+            menu::Toast(after > before ? "+" + std::to_string(after - before) + "  " + Pretty(name)
+                                       : lang::T("Inventory full: dropped at your feet"));
             return;
         }
-        // Fallback: the game's own inventory code.
+        // Fallback when the developers' cheat is unavailable: the game's own inventory code.
         UObject* im = ItemManager();
         UClass* stackable = FindClass("ItemInfoStackable");
         for (int i = 0, left = count; left > 0 && i < 50; i++) {
@@ -1110,7 +1213,7 @@ void GiveItem(const std::string& name, int count)
             Call(im, "AddItemInInventory").Arg(0, info).Arg(1, player).Arg(2, false).Arg(3, false).Arg(4, false).Run();
             left -= n;
         }
-        int after2 = ItemCount(item);
+        int after2 = ItemCount(item, true);
         km::Log("Give %s x%d: %s via item manager (%d -> %d)", name.c_str(), count, after2 > before ? "OK" : "FAILED",
                 before, after2);
         char failed[160];

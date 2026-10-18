@@ -25,20 +25,15 @@ struct View {
 double Dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 Vec3 Sub(const Vec3& a, const Vec3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 
-// Camera read straight from the camera manager every frame (SEH-guarded: it may be mid-teardown on a level change).
+// The camera of the game frame the positions come from.
 bool ReadView(const feat::EspFrame& f, View& v)
 {
-    struct {
-        double pitch, yaw, roll;
-    } rot{};
-    float fov = 0;
-    if (!f.povLocation || !ue::SafeRead(reinterpret_cast<void*>(f.povLocation), &v.loc, sizeof(v.loc)) ||
-        !ue::SafeRead(reinterpret_cast<void*>(f.povRotation), &rot, sizeof(rot)) ||
-        !ue::SafeRead(reinterpret_cast<void*>(f.povFov), &fov, sizeof(fov)) || fov < 5 || fov > 170)
-        return false;
-    // Unreal's rotation matrix axes: X forward, Y right, Z up.
-    double sp = std::sin(rot.pitch * kDeg), cp = std::cos(rot.pitch * kDeg), sy = std::sin(rot.yaw * kDeg),
-           cy = std::cos(rot.yaw * kDeg), sr = std::sin(rot.roll * kDeg), cr = std::cos(rot.roll * kDeg);
+    if (!f.camera) return false;
+    v.loc = f.camLoc;
+    float fov = f.fov;
+    // Unreal's rotation matrix axes: X forward, Y right, Z up. camRot: x pitch, y yaw, z roll.
+    double sp = std::sin(f.camRot.x * kDeg), cp = std::cos(f.camRot.x * kDeg), sy = std::sin(f.camRot.y * kDeg),
+           cy = std::cos(f.camRot.y * kDeg), sr = std::sin(f.camRot.z * kDeg), cr = std::cos(f.camRot.z * kDeg);
     v.fwd = {cp * cy, cp * sy, sp};
     v.right = {sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, -sr * cp};
     v.up = {-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp};
@@ -185,12 +180,19 @@ void DrawThing(ImDrawList* dl, const View& v, const feat::EspThing& t, float s)
 
 void Draw()
 {
-    if (!g_on[feat::Esp]) return;
+    if (!g_on[feat::Esp] && !g_on[feat::SilentAim]) return;
     feat::EspFrame f = feat::GetEspFrame();
     View v;
-    if (!f.active || !ReadView(f, v)) return;
+    if (!ReadView(f, v)) return;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     float s = ImGui::GetStyle().FontScaleMain;
+
+    if (g_on[feat::SilentAim]) { // the aim FOV: enemies whose head is inside the circle can be targeted
+        float r = v.focal * std::tan(float(feat::g_value[feat::AimFov] * kDeg));
+        dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Black, 0.5f)), 96, 3.f * s);
+        dl->AddCircle({v.cx, v.cy}, r, Raw(Alpha(Violet, 0.85f)), 96, 1.3f * s);
+    }
+    if (!g_on[feat::Esp] || !f.active) return;
 
     std::sort(f.things.begin(), f.things.end(), [](auto& x, auto& y) { return x.distance < y.distance; });
     if (f.things.size() > 60) f.things.resize(60);

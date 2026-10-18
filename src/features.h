@@ -11,7 +11,7 @@ namespace feat {
 
 enum Toggle {
     GodMode, InfiniteHealth, NoSprintCooldown, OneHitKill, Invisible,
-    InfiniteAmmo, NoSufferingCost, NoPowerCooldown, Unbreakable,
+    InfiniteAmmo, NoSufferingCost, NoPowerCooldown, Unbreakable, SilentAim,
     Fly, Noclip,
     FreezeAI, HideHUD, FreeCam, AutoLockpick, SkipIntros,
     Esp, EspBox, EspHealth, EspName, EspDistance, EspSkeleton, EspHead, EspChams, EspSnaplines, EspOffscreen,
@@ -28,7 +28,7 @@ struct ToggleInfo {
 extern const ToggleInfo kToggles[ToggleCount];
 extern std::atomic<bool> g_on[ToggleCount];
 
-enum Value { DamageMult, SpeedMult, JumpMult, TimeScale, Fov, KillRadius, EspRange, EspWorldRange, ValueCount };
+enum Value { DamageMult, SpeedMult, JumpMult, TimeScale, Fov, KillRadius, EspRange, EspWorldRange, AimFov, ValueCount };
 struct ValueInfo {
     const char* key;
     float def, min, max;
@@ -63,8 +63,8 @@ struct Snapshot {
 };
 Snapshot GetSnapshot();
 
-// What the ESP draws, gathered on the game thread. The camera is read live by the renderer (pointers below)
-// so the overlay follows mouse look without lag.
+// What the ESP draws, gathered on the game thread once per engine frame together with that frame's camera, so the
+// boxes match the picture instead of trailing it.
 struct Vec3 {
     double x = 0, y = 0, z = 0;
 };
@@ -83,8 +83,10 @@ struct EspThing {
     EspKind kind = EspKind::Item;
 };
 struct EspFrame {
-    bool active = false;
-    uintptr_t povLocation = 0, povRotation = 0, povFov = 0; // inside the player camera manager
+    bool active = false; // ESP data below
+    bool camera = false; // camera read in the same frame (also drawn for the aim circle)
+    Vec3 camLoc, camRot; // camRot: x pitch, y yaw, z roll (degrees)
+    float fov = 0;       // horizontal
     std::vector<EspEnemy> enemies;
     std::vector<EspThing> things;
 };

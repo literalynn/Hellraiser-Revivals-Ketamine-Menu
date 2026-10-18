@@ -109,8 +109,18 @@ struct FString { // TArray<wchar_t>
     std::string ToUtf8() const;
 };
 
-// Queue work for the game thread (executed from our ProcessEvent hook). Tick runs ~60 times per second.
+// Queue work for the game thread (executed from our ProcessEvent hook). Tick runs ~60 times per second; the frame tick
+// once per engine frame (at most 250 times per second), for what must follow the picture (ESP).
 void RunOnGameThread(std::function<void()> fn);
 void SetTick(std::function<void()> fn);
+void SetFrameTick(std::function<void()> fn);
+
+// Swaps the code a native UFunction runs (what both Blueprint and ProcessEvent call) for `detour`, which must call
+// `*original`. The parameters are already consumed when the original returns; `result` points at the return value.
+using NativeThunk = void (*)(UObject* context, void* stack, void* result);
+bool HookNative(UFunction* fn, NativeThunk detour, NativeThunk* original);
+
+// Runs fn behind an SEH guard: false when it faulted (code running inside game functions must never crash the game).
+bool Guard(std::function<void()>& fn);
 
 } // namespace ue

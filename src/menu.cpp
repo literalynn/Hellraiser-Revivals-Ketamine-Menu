@@ -413,6 +413,9 @@ void TabPlayer(const feat::Snapshot& s)
 
 void TabCombat(const feat::Snapshot& s)
 {
+    Section("AIM");
+    ToggleRow(feat::SilentAim, s);
+    SliderRow(feat::AimFov, "Aim FOV", "%.0f°", s, "Size of the circle around the crosshair where enemies are targeted.");
     Section("WEAPONS");
     for (Toggle t : {feat::InfiniteAmmo, feat::Unbreakable}) ToggleRow(t, s);
     Section("GENESIS CONFIGURATION");
@@ -953,7 +956,7 @@ bool IsOpen() { return g_open; }
 
 bool WantsFrame()
 {
-    if (g_open || feat::g_on[feat::Esp]) return true;
+    if (g_open || feat::g_on[feat::Esp] || feat::g_on[feat::SilentAim]) return true;
     std::lock_guard lock(g_toastMutex);
     return !g_toasts.empty();
 }

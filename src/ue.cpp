@@ -60,7 +60,20 @@ std::map<std::string, UClass*> g_classes;
 std::mutex g_taskMutex;
 std::vector<std::function<void()>> g_tasks;
 std::atomic<bool> g_tasksPending;
-std::function<void()> g_tick;
+std::function<void()> g_tick, g_frameTick;
+
+// GetTickCount64 moves in 15.6 ms steps: a ">= 16 ms" check on it really meant 32 Hz.
+uint64_t PreciseMs()
+{
+    static const double toMs = [] {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        return 1000.0 / double(f.QuadPart);
+    }();
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return uint64_t(double(c.QuadPart) * toMs);
+}
 
 template <class T> T Read(const void* p, int offset) { return *reinterpret_cast<const T*>(static_cast<const uint8_t*>(p) + offset); }
 
@@ -214,9 +227,11 @@ bool Guarded(std::function<void()>& fn)
     }
 }
 
-void GameThreadWork(uint64_t now)
+void GameThreadWork()
 {
-    static uint64_t lastTick;
+    static uint64_t lastTick, lastPoll, lastFrameTick;
+    static int64_t lastFrame = -1;
+    uint64_t now = PreciseMs();
     if (g_tasksPending.exchange(false)) {
         std::vector<std::function<void()>> tasks;
         {
@@ -231,6 +246,19 @@ void GameThreadWork(uint64_t now)
         static int faults;
         if (!Guarded(g_tick) && faults++ < 5) km::Log("Tick faulted (feature skipped this frame)");
     }
+    // Once per engine frame: poll the frame counter at most once a millisecond.
+    if (g_frameTick && g.ready && now != lastPoll) {
+        lastPoll = now;
+        static UObject* ksl = FindObject("Default__KismetSystemLibrary");
+        Call count(ksl, "GetFrameCount");
+        int64_t frame = count && count.Run() ? count.Out<int64_t>("ReturnValue") : -1;
+        if (frame != lastFrame && now - lastFrameTick >= 4) {
+            lastFrame = frame;
+            lastFrameTick = now;
+            static int faults;
+            if (!Guarded(g_frameTick) && faults++ < 5) km::Log("Frame tick faulted (skipped this frame)");
+        }
+    }
 }
 
 void hkProcessEvent(UObject* obj, UFunction* fn, void* params)
@@ -238,7 +266,7 @@ void hkProcessEvent(UObject* obj, UFunction* fn, void* params)
     static bool inside; // game thread only
     if (!inside && GetCurrentThreadId() == g.gameThread) {
         inside = true;
-        GameThreadWork(GetTickCount64());
+        GameThreadWork();
         inside = false;
     }
     oProcessEvent(obj, fn, params);
@@ -527,5 +555,38 @@ void RunOnGameThread(std::function<void()> fn)
 }
 
 void SetTick(std::function<void()> fn) { g_tick = std::move(fn); }
+void SetFrameTick(std::function<void()> fn) { g_frameTick = std::move(fn); }
+
+bool Guard(std::function<void()>& fn) { return Guarded(fn); }
+
+bool HookNative(UFunction* fn, NativeThunk detour, NativeThunk* original)
+{
+    // UFunction::Func sits a few fields after FunctionFlags (heap pointers and small counts in between): take the first
+    // slot that points into the exe's code in two unrelated native functions.
+    static const int funcOffset = [] {
+        Range text = Section(".text");
+        auto code = [&](const void* f, int o) {
+            auto* p = Read<uint8_t*>(f, o);
+            return p >= text.begin && p < text.end;
+        };
+        UClass* ksl = FindClass("KismetSystemLibrary");
+        UFunction *a = FindFunction(ksl, "GetFrameCount"), *b = FindFunction(ksl, "GetEngineVersion");
+        for (int o = off::FuncFlags + 8; a && b && o <= 0x120; o += 8)
+            if (code(a, o) && code(b, o)) return o;
+        return -1;
+    }();
+    auto* obj = reinterpret_cast<UObject*>(fn);
+    if (!fn || funcOffset < 0) {
+        km::Log("Native hook %s: %s", fn ? Name(obj).c_str() : "(function missing)",
+                funcOffset < 0 ? "UFunction::Func not found" : "not found");
+        return false;
+    }
+    auto* slot = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(fn) + funcOffset);
+    *original = reinterpret_cast<NativeThunk>(*slot);
+    InterlockedExchangePointer(slot, reinterpret_cast<void*>(detour));
+    km::Log("Native hook %s: OK (UFunction+0x%X, was exe+0x%llX)", Name(obj).c_str(), funcOffset,
+            static_cast<unsigned long long>(reinterpret_cast<uint8_t*>(*original) - g.base));
+    return true;
+}
 
 } // namespace ue
