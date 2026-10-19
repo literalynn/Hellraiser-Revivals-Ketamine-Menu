@@ -510,6 +510,21 @@ Call::Call(UObject* obj, const char* function) : obj_(obj)
     if (fn_) params_.assign(size_t(Read<int32_t>(fn_, off::StructSize)), '\0');
 }
 
+Call::Call(UObject* obj, const UClass* owner, const char* function) : obj_(obj)
+{
+    fn_ = obj && owner ? FindFunction(owner, function) : nullptr;
+    if (fn_) params_.assign(size_t(Read<int32_t>(fn_, off::StructSize)), '\0');
+}
+
+Call& Call::ArgRaw(int index, const void* data, size_t size)
+{
+    auto* p = static_cast<char*>(SlotAt(index));
+    if (p && data && p + size <= params_.data() + params_.size()) std::memcpy(p, data, size);
+    return *this;
+}
+
+int32_t StructSize(const UClass* s) { return s ? Read<int32_t>(s, off::StructSize) : 0; }
+
 void* Call::Slot(const char* name)
 {
     Prop p = fn_ ? FindProp(reinterpret_cast<UClass*>(fn_), name) : Prop{};

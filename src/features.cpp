@@ -323,10 +323,82 @@ UObject* ItemManager()
     return c.Arg(0, s.pc.Get()).Run() ? c.Out<UObject*>("ReturnValue") : nullptr;
 }
 
+// An FName from text, through the engine (finds the existing name, or adds it).
+uint64_t MakeName(const char* text)
+{
+    std::wstring w(text, text + strlen(text));
+    FString str{w.data(), int32_t(w.size() + 1), int32_t(w.size() + 1)};
+    Call name(Cdo("KismetStringLibrary"), "Conv_StringToName");
+    return name.Arg(0, str).Run() ? name.Out<uint64_t>("ReturnValue") : 0;
+}
+
+// ---- Every item of the game, loaded or not. Listing the loaded item data assets only showed what the story had
+// met (no shotgun before finding one); the asset registry knows them all and GetAsset loads one when it's given.
+// The registry fills an array that is kept (never freed): its entries stay valid for GetAsset.
+struct ItemAsset {
+    std::string name, cls;
+    const uint8_t* data; // FAssetData
+};
+std::vector<ItemAsset> g_itemAssets;
+std::vector<std::string> g_itemsLeftOut; // paid / bonus content, also when it happens to be loaded
+int32_t g_assetDataSize = 0;
+
+void ReadItemAssets()
+{
+    static bool done;
+    if (done) return;
+    done = true;
+    Call reg(Cdo("AssetRegistryHelpers"), "GetAssetRegistry");
+    UObject* registry = reg.Run() ? reg.Out<UObject*>("ReturnValue") : nullptr; // TScriptInterface: object first
+    auto* info = reinterpret_cast<const UClass*>(FindObject("AssetData", FindClass("ScriptStruct")));
+    Prop name = FindProp(info, "AssetName"), cls = FindProp(info, "AssetClassPath"), path = FindProp(info, "PackagePath");
+    g_assetDataSize = StructSize(info);
+    struct {
+        uint64_t package, asset; // FTopLevelAssetPath of the UItem class
+    } itemClass{MakeName("/Script/Project"), MakeName("Item")};
+    Call get(registry, FindClass("AssetRegistry"), "GetAssetsByClass");
+    if (!get || !name || !cls || !path || g_assetDataSize <= 0 || !get.Arg(0, itemClass).Arg(2, true).Run() ||
+        !get.Out<bool>("ReturnValue")) {
+        km::Log("Item list: asset registry unavailable, only loaded items are listed");
+        return;
+    }
+    auto found = get.Out<TArray<uint8_t>>("OutAssetData");
+    std::string skipped;
+    for (int i = 0; i < found.num; i++) {
+        const uint8_t* e = found.data + size_t(i) * size_t(g_assetDataSize);
+        std::string asset = NameToString(e + name.offset), folder = NameToString(e + path.offset), low = folder;
+        std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+        // Paid / bonus editions' content stays out (giving it would bypass the purchase).
+        if (low.find("deluxe") != std::string::npos || low.find("preorder") != std::string::npos ||
+            low.find("extracontent") != std::string::npos || low.find("dlc") != std::string::npos ||
+            low.find("retail") != std::string::npos || low.find("bonus") != std::string::npos) {
+            skipped += " " + asset + " (" + folder + ")";
+            g_itemsLeftOut.push_back(asset);
+            continue;
+        }
+        g_itemAssets.push_back({asset, NameToString(e + cls.offset + 8), e}); // AssetClassPath.AssetName
+    }
+    km::Log("Item list: %zu item assets in the asset registry, left out:%s", g_itemAssets.size(),
+            skipped.empty() ? " none" : skipped.c_str());
+}
+
+UObject* LoadItemAsset(const std::string& name)
+{
+    for (const ItemAsset& a : g_itemAssets)
+        if (a.name == name) {
+            Call load(Cdo("AssetRegistryHelpers"), "GetAsset");
+            UObject* item = load.ArgRaw(0, a.data, size_t(g_assetDataSize)).Run() ? load.Out<UObject*>("ReturnValue") : nullptr;
+            km::Log("Item %s: %s", name.c_str(), item ? "loaded" : "could not be loaded");
+            return item;
+        }
+    return nullptr;
+}
+
 UObject* FindItem(const std::string& name)
 {
     Weak& w = s.items[name];
     if (!w.Get()) w = Weak(FindObject(name.c_str(), FindClass("Item")));
+    if (!w.Get()) w = Weak(LoadItemAsset(name)); // not met yet in the story (or unloaded since)
     return w.Get();
 }
 
@@ -1082,12 +1154,20 @@ void SlowRefresh(UObject* player, Snapshot& snap)
         {"ItemWeaponUpgrade", "Weapon upgrades"}, {"ItemEquipableToolMultiUserUsable", "Healing"},
         {"ItemEquippableTool", "Tools"},    {"ItemEquippable", "Equipment"},
     };
-    std::map<std::string, std::vector<Named>> byCat;
+    std::map<std::string, std::string> classOf; // item -> class name: every item from the registry, plus loaded ones
+    ReadItemAssets();
+    for (const ItemAsset& a : g_itemAssets) classOf.emplace(a.name, a.cls);
     ForEachInstance(FindClass("Item"), [&](UObject* o) {
-        auto it = kCategory.find(Name(reinterpret_cast<UObject*>(ClassOf(o))));
-        byCat[it == kCategory.end() ? "Misc" : it->second].push_back({Name(o), 0});
+        std::string item = Name(o);
+        if (std::find(g_itemsLeftOut.begin(), g_itemsLeftOut.end(), item) == g_itemsLeftOut.end())
+            classOf.emplace(item, Name(reinterpret_cast<UObject*>(ClassOf(o))));
         return true;
     });
+    std::map<std::string, std::vector<Named>> byCat;
+    for (const auto& [item, cls] : classOf) {
+        auto it = kCategory.find(cls);
+        byCat[it == kCategory.end() ? "Misc" : it->second].push_back({item, 0});
+    }
     snap.items.clear();
     for (auto& [cat, list] : byCat) {
         std::sort(list.begin(), list.end(), [](const Named& a, const Named& b) { return a.name < b.name; });
@@ -1490,11 +1570,7 @@ void CompleteObjective(uint64_t fname)
 void UnlockPower(Power power)
 {
     OnGame([power](UObject* player) {
-        // A gameplay tag is just its FName: let the engine turn the tag's text into one.
-        std::wstring text(kPowerTags[power], kPowerTags[power] + strlen(kPowerTags[power]));
-        FString str{text.data(), int32_t(text.size() + 1), int32_t(text.size() + 1)};
-        Call name(Cdo("KismetStringLibrary"), "Conv_StringToName");
-        uint64_t tag = name.Arg(0, str).Run() ? name.Out<uint64_t>("ReturnValue") : 0;
+        uint64_t tag = MakeName(kPowerTags[power]); // a gameplay tag is just its FName
         bool ok = tag && Call(player, "AddGenesisConfigurationAbility").Arg(0, tag).Run();
         km::Log("Unlock %s (%s): %s", kPowerNames[power], tag ? NameToString(&tag).c_str() : "no tag", ok ? "called" : "failed");
     });

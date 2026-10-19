@@ -51,6 +51,7 @@ struct Prop {
     explicit operator bool() const { return offset >= 0; }
 };
 Prop FindProp(const UClass* structOrClass, const char* name); // cached, walks the Super chain
+int32_t StructSize(const UClass* structOrClass);               // bytes of one instance
 UFunction* FindFunction(const UClass* cls, const char* name);  // cached, walks the Super chain
 
 // Typed access to a property by name. Returns nullptr when the property doesn't exist (feature greys out).
@@ -66,7 +67,9 @@ bool SetBool(UObject* obj, const char* name, bool value);
 class Call {
 public:
     Call(UObject* obj, const char* function);
+    Call(UObject* obj, const UClass* owner, const char* function); // owner's function (e.g. an interface obj implements)
     explicit operator bool() const { return fn_ != nullptr; }
+    Call& ArgRaw(int index, const void* data, size_t size); // a struct copied as is (its size from StructSize)
     template <class T> Call& Arg(const char* name, const T& v)
     {
         if (void* p = Slot(name)) std::memcpy(p, &v, sizeof(T));
