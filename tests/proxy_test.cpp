@@ -1,17 +1,8 @@
-// Loads the built proxy and checks that forwarded exports (by name and by ordinal) land in System32\winmm.dll.
+// Loads the built proxy and calls winmm through it: each export must reach the real System32 winmm.dll
+// (same results), by name and by ordinal.
 #include <windows.h>
 #include <cstdio>
 #include <string>
-
-static std::wstring OwnerOf(FARPROC fn)
-{
-    HMODULE owner = nullptr;
-    wchar_t buf[MAX_PATH] = {};
-    if (fn && GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                 reinterpret_cast<LPCWSTR>(fn), &owner))
-        GetModuleFileNameW(owner, buf, MAX_PATH);
-    return buf;
-}
 
 int wmain(int argc, wchar_t** argv)
 {
@@ -21,19 +12,37 @@ int wmain(int argc, wchar_t** argv)
         printf("FAIL load error %lu\n", GetLastError());
         return 1;
     }
-    // The loader reports the real DLL under its GLOBALROOT name, so match on the suffix.
-    const std::wstring want = L"\\System32\\winmm.dll";
+    wchar_t sys[MAX_PATH];
+    GetSystemDirectoryW(sys, MAX_PATH);
+    HMODULE real = LoadLibraryW((std::wstring(sys) + L"\\winmm.dll").c_str());
+    if (!real || real == proxy) {
+        printf("FAIL system winmm.dll\n");
+        return 1;
+    }
 
     int fails = 0;
-    for (auto [label, fn] : {std::pair{"timeGetTime", GetProcAddress(proxy, "timeGetTime")},
-                             std::pair{"waveOutGetNumDevs", GetProcAddress(proxy, "waveOutGetNumDevs")},
-                             std::pair{"#2", GetProcAddress(proxy, MAKEINTRESOURCEA(2))}}) {
-        auto owner = OwnerOf(fn);
-        bool ok = owner.size() > want.size() &&
-                  _wcsicmp(owner.c_str() + owner.size() - want.size(), want.c_str()) == 0;
+    auto check = [&](const char* what, bool ok) {
         fails += !ok;
-        printf("%s %s -> %ls\n", ok ? "PASS" : "FAIL", label, owner.c_str());
-    }
+        printf("%s %s\n", ok ? "PASS" : "FAIL", what);
+    };
+    using GetTime = DWORD(WINAPI*)();
+    using Period = UINT(WINAPI*)(UINT);
+    using NumDevs = UINT(WINAPI*)();
+    auto pTime = reinterpret_cast<GetTime>(GetProcAddress(proxy, "timeGetTime"));
+    auto rTime = reinterpret_cast<GetTime>(GetProcAddress(real, "timeGetTime"));
+    check("timeGetTime is the proxy's own stub", pTime && pTime != rTime);
+    check("timeGetTime returns the real time", pTime && rTime && pTime() - rTime() + 50u <= 100u);
+
+    auto pBegin = reinterpret_cast<Period>(GetProcAddress(proxy, "timeBeginPeriod"));
+    auto pEnd = reinterpret_cast<Period>(GetProcAddress(proxy, "timeEndPeriod"));
+    check("timeBeginPeriod / timeEndPeriod succeed", pBegin && pEnd && pBegin(1) == 0 && pEnd(1) == 0);
+
+    auto pDevs = reinterpret_cast<NumDevs>(GetProcAddress(proxy, "waveOutGetNumDevs"));
+    auto rDevs = reinterpret_cast<NumDevs>(GetProcAddress(real, "waveOutGetNumDevs"));
+    check("waveOutGetNumDevs matches", pDevs && rDevs && pDevs() == rDevs());
+
+    check("ordinal #2 is exported", GetProcAddress(proxy, MAKEINTRESOURCEA(2)) && GetProcAddress(real, MAKEINTRESOURCEA(2)));
+
     Sleep(500); // let the trainer thread finish writing its log
     return fails ? 1 : 0;
 }

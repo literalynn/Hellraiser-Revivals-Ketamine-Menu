@@ -18,6 +18,27 @@ static std::wstring ModulePath(HMODULE m)
 
 static DWORD g_mainThread; // UE runs its game thread on the process main thread, which loads us
 
+extern "C" void* g_kmWinmm[kWinmmCount] = {};
+static wchar_t g_winmmPath[MAX_PATH];
+static int g_winmmResolved;
+
+static UINT WINAPI WinmmMissing() { return 0; } // an export the real DLL lacks (some under Wine): harmless no-op
+
+// Points every export stub at the real winmm.dll, opened by its System32 path so it is never this proxy. Done in
+// DllMain: the game calls winmm as soon as the loader hands it over (ReShade and ASI loaders do the same).
+static void ResolveWinmm(HMODULE self)
+{
+    UINT n = GetSystemDirectoryW(g_winmmPath, MAX_PATH);
+    HMODULE real = n && n < MAX_PATH - 11 && !wcscat_s(g_winmmPath, L"\\winmm.dll") ? LoadLibraryW(g_winmmPath) : nullptr;
+    for (int i = 0; i < kWinmmCount; i++) {
+        const char* import = kWinmmImports[i];
+        FARPROC fn = real && real != self ? GetProcAddress(real, import[0] == '#' ? MAKEINTRESOURCEA(atoi(import + 1)) : import)
+                                          : nullptr;
+        g_winmmResolved += fn != nullptr;
+        g_kmWinmm[i] = fn ? reinterpret_cast<void*>(fn) : reinterpret_cast<void*>(&WinmmMissing);
+    }
+}
+
 static void Main(HMODULE self)
 {
     fs::path dll = ModulePath(self);
@@ -32,13 +53,8 @@ static void Main(HMODULE self)
     std::getline(vf, ver);
     km::Log("Game version: %s", ver.empty() ? "(Version.txt not found)" : ver.c_str());
 
-    // Forwarding self-check: our exports must land in the real System32 winmm.
-    HMODULE owner = nullptr;
-    if (auto fn = GetProcAddress(self, "timeGetTime"))
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCWSTR>(fn), &owner);
-    km::Log("winmm forwarding: %s (%ls)", owner && owner != self ? "OK" : "FAILED",
-            owner ? ModulePath(owner).c_str() : L"unresolved");
+    km::Log("winmm forwarding: %s, %d of %d functions (%ls)", g_winmmResolved > kWinmmCount / 2 ? "OK" : "FAILED",
+            g_winmmResolved, kWinmmCount, g_winmmPath);
 
     menu::Init(self, ver); // settings + game-thread tick, before any hook can call into them
     km::Log("Overlay: %s", overlay::Install() ? "hooks installed" : "disabled");
@@ -52,8 +68,9 @@ static void Main(HMODULE self)
 
 BOOL APIENTRY DllMain(HMODULE self, DWORD reason, LPVOID)
 {
-    // Only spawn a thread here: anything heavier would run under the loader lock.
+    // Only the winmm stubs and a thread here: anything heavier would run under the loader lock.
     if (reason == DLL_PROCESS_ATTACH) {
+        ResolveWinmm(self);
         g_mainThread = GetCurrentThreadId();
         HANDLE t = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD { Main(static_cast<HMODULE>(p)); return 0; },
                                 self, 0, nullptr);

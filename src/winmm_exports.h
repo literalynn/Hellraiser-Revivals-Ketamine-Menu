@@ -1,186 +1,375 @@
-// Forwarders to the real System32 winmm.dll (generated from `dumpbin /exports` of winmm 10.0.26100).
-// Absolute GLOBALROOT path so the loader never resolves back to this proxy.
+// winmm exports (from `dumpbin /exports` of winmm 10.0.26100, same names and ordinals). Each one is a stub in
+// src/winmm_stubs.asm that jumps through g_kmWinmm to the real System32 winmm.dll, loaded and resolved in DllMain.
+// Linker forwarders to a \\.\GLOBALROOT path did this before, but Wine / Proton never resolves them: the game's
+// winmm imports stayed empty and it crashed at boot on Steam Deck.
 #pragma once
-#define KM_FWD "\\\\.\\GLOBALROOT\\SystemRoot\\System32\\winmm.dll."
 
-#pragma comment(linker, "/EXPORT:CloseDriver=" KM_FWD "CloseDriver,@4")
-#pragma comment(linker, "/EXPORT:DefDriverProc=" KM_FWD "DefDriverProc,@5")
-#pragma comment(linker, "/EXPORT:DriverCallback=" KM_FWD "DriverCallback,@6")
-#pragma comment(linker, "/EXPORT:DrvGetModuleHandle=" KM_FWD "DrvGetModuleHandle,@7")
-#pragma comment(linker, "/EXPORT:GetDriverModuleHandle=" KM_FWD "GetDriverModuleHandle,@8")
-#pragma comment(linker, "/EXPORT:OpenDriver=" KM_FWD "OpenDriver,@9")
-#pragma comment(linker, "/EXPORT:PlaySound=" KM_FWD "PlaySound,@10")
-#pragma comment(linker, "/EXPORT:PlaySoundA=" KM_FWD "PlaySoundA,@11")
-#pragma comment(linker, "/EXPORT:PlaySoundW=" KM_FWD "PlaySoundW,@12")
-#pragma comment(linker, "/EXPORT:SendDriverMessage=" KM_FWD "SendDriverMessage,@13")
-#pragma comment(linker, "/EXPORT:WOWAppExit=" KM_FWD "WOWAppExit,@14")
-#pragma comment(linker, "/EXPORT:auxGetDevCapsA=" KM_FWD "auxGetDevCapsA,@15")
-#pragma comment(linker, "/EXPORT:auxGetDevCapsW=" KM_FWD "auxGetDevCapsW,@16")
-#pragma comment(linker, "/EXPORT:auxGetNumDevs=" KM_FWD "auxGetNumDevs,@17")
-#pragma comment(linker, "/EXPORT:auxGetVolume=" KM_FWD "auxGetVolume,@18")
-#pragma comment(linker, "/EXPORT:auxOutMessage=" KM_FWD "auxOutMessage,@19")
-#pragma comment(linker, "/EXPORT:auxSetVolume=" KM_FWD "auxSetVolume,@20")
-#pragma comment(linker, "/EXPORT:joyConfigChanged=" KM_FWD "joyConfigChanged,@21")
-#pragma comment(linker, "/EXPORT:joyGetDevCapsA=" KM_FWD "joyGetDevCapsA,@22")
-#pragma comment(linker, "/EXPORT:joyGetDevCapsW=" KM_FWD "joyGetDevCapsW,@23")
-#pragma comment(linker, "/EXPORT:joyGetNumDevs=" KM_FWD "joyGetNumDevs,@24")
-#pragma comment(linker, "/EXPORT:joyGetPos=" KM_FWD "joyGetPos,@25")
-#pragma comment(linker, "/EXPORT:joyGetPosEx=" KM_FWD "joyGetPosEx,@26")
-#pragma comment(linker, "/EXPORT:joyGetThreshold=" KM_FWD "joyGetThreshold,@27")
-#pragma comment(linker, "/EXPORT:joyReleaseCapture=" KM_FWD "joyReleaseCapture,@28")
-#pragma comment(linker, "/EXPORT:joySetCapture=" KM_FWD "joySetCapture,@29")
-#pragma comment(linker, "/EXPORT:joySetThreshold=" KM_FWD "joySetThreshold,@30")
-#pragma comment(linker, "/EXPORT:mciDriverNotify=" KM_FWD "mciDriverNotify,@31")
-#pragma comment(linker, "/EXPORT:mciDriverYield=" KM_FWD "mciDriverYield,@32")
-#pragma comment(linker, "/EXPORT:mciExecute=" KM_FWD "mciExecute,@3")
-#pragma comment(linker, "/EXPORT:mciFreeCommandResource=" KM_FWD "mciFreeCommandResource,@33")
-#pragma comment(linker, "/EXPORT:mciGetCreatorTask=" KM_FWD "mciGetCreatorTask,@34")
-#pragma comment(linker, "/EXPORT:mciGetDeviceIDA=" KM_FWD "mciGetDeviceIDA,@35")
-#pragma comment(linker, "/EXPORT:mciGetDeviceIDFromElementIDA=" KM_FWD "mciGetDeviceIDFromElementIDA,@36")
-#pragma comment(linker, "/EXPORT:mciGetDeviceIDFromElementIDW=" KM_FWD "mciGetDeviceIDFromElementIDW,@37")
-#pragma comment(linker, "/EXPORT:mciGetDeviceIDW=" KM_FWD "mciGetDeviceIDW,@38")
-#pragma comment(linker, "/EXPORT:mciGetDriverData=" KM_FWD "mciGetDriverData,@39")
-#pragma comment(linker, "/EXPORT:mciGetErrorStringA=" KM_FWD "mciGetErrorStringA,@40")
-#pragma comment(linker, "/EXPORT:mciGetErrorStringW=" KM_FWD "mciGetErrorStringW,@41")
-#pragma comment(linker, "/EXPORT:mciGetYieldProc=" KM_FWD "mciGetYieldProc,@42")
-#pragma comment(linker, "/EXPORT:mciLoadCommandResource=" KM_FWD "mciLoadCommandResource,@43")
-#pragma comment(linker, "/EXPORT:mciSendCommandA=" KM_FWD "mciSendCommandA,@44")
-#pragma comment(linker, "/EXPORT:mciSendCommandW=" KM_FWD "mciSendCommandW,@45")
-#pragma comment(linker, "/EXPORT:mciSendStringA=" KM_FWD "mciSendStringA,@46")
-#pragma comment(linker, "/EXPORT:mciSendStringW=" KM_FWD "mciSendStringW,@47")
-#pragma comment(linker, "/EXPORT:mciSetDriverData=" KM_FWD "mciSetDriverData,@48")
-#pragma comment(linker, "/EXPORT:mciSetYieldProc=" KM_FWD "mciSetYieldProc,@49")
-#pragma comment(linker, "/EXPORT:midiConnect=" KM_FWD "midiConnect,@50")
-#pragma comment(linker, "/EXPORT:midiDisconnect=" KM_FWD "midiDisconnect,@51")
-#pragma comment(linker, "/EXPORT:midiInAddBuffer=" KM_FWD "midiInAddBuffer,@52")
-#pragma comment(linker, "/EXPORT:midiInClose=" KM_FWD "midiInClose,@53")
-#pragma comment(linker, "/EXPORT:midiInGetDevCapsA=" KM_FWD "midiInGetDevCapsA,@54")
-#pragma comment(linker, "/EXPORT:midiInGetDevCapsW=" KM_FWD "midiInGetDevCapsW,@55")
-#pragma comment(linker, "/EXPORT:midiInGetErrorTextA=" KM_FWD "midiInGetErrorTextA,@56")
-#pragma comment(linker, "/EXPORT:midiInGetErrorTextW=" KM_FWD "midiInGetErrorTextW,@57")
-#pragma comment(linker, "/EXPORT:midiInGetID=" KM_FWD "midiInGetID,@58")
-#pragma comment(linker, "/EXPORT:midiInGetNumDevs=" KM_FWD "midiInGetNumDevs,@59")
-#pragma comment(linker, "/EXPORT:midiInMessage=" KM_FWD "midiInMessage,@60")
-#pragma comment(linker, "/EXPORT:midiInOpen=" KM_FWD "midiInOpen,@61")
-#pragma comment(linker, "/EXPORT:midiInPrepareHeader=" KM_FWD "midiInPrepareHeader,@62")
-#pragma comment(linker, "/EXPORT:midiInReset=" KM_FWD "midiInReset,@63")
-#pragma comment(linker, "/EXPORT:midiInStart=" KM_FWD "midiInStart,@64")
-#pragma comment(linker, "/EXPORT:midiInStop=" KM_FWD "midiInStop,@65")
-#pragma comment(linker, "/EXPORT:midiInUnprepareHeader=" KM_FWD "midiInUnprepareHeader,@66")
-#pragma comment(linker, "/EXPORT:midiOutCacheDrumPatches=" KM_FWD "midiOutCacheDrumPatches,@67")
-#pragma comment(linker, "/EXPORT:midiOutCachePatches=" KM_FWD "midiOutCachePatches,@68")
-#pragma comment(linker, "/EXPORT:midiOutClose=" KM_FWD "midiOutClose,@69")
-#pragma comment(linker, "/EXPORT:midiOutGetDevCapsA=" KM_FWD "midiOutGetDevCapsA,@70")
-#pragma comment(linker, "/EXPORT:midiOutGetDevCapsW=" KM_FWD "midiOutGetDevCapsW,@71")
-#pragma comment(linker, "/EXPORT:midiOutGetErrorTextA=" KM_FWD "midiOutGetErrorTextA,@72")
-#pragma comment(linker, "/EXPORT:midiOutGetErrorTextW=" KM_FWD "midiOutGetErrorTextW,@73")
-#pragma comment(linker, "/EXPORT:midiOutGetID=" KM_FWD "midiOutGetID,@74")
-#pragma comment(linker, "/EXPORT:midiOutGetNumDevs=" KM_FWD "midiOutGetNumDevs,@75")
-#pragma comment(linker, "/EXPORT:midiOutGetVolume=" KM_FWD "midiOutGetVolume,@76")
-#pragma comment(linker, "/EXPORT:midiOutLongMsg=" KM_FWD "midiOutLongMsg,@77")
-#pragma comment(linker, "/EXPORT:midiOutMessage=" KM_FWD "midiOutMessage,@78")
-#pragma comment(linker, "/EXPORT:midiOutOpen=" KM_FWD "midiOutOpen,@79")
-#pragma comment(linker, "/EXPORT:midiOutPrepareHeader=" KM_FWD "midiOutPrepareHeader,@80")
-#pragma comment(linker, "/EXPORT:midiOutReset=" KM_FWD "midiOutReset,@81")
-#pragma comment(linker, "/EXPORT:midiOutSetVolume=" KM_FWD "midiOutSetVolume,@82")
-#pragma comment(linker, "/EXPORT:midiOutShortMsg=" KM_FWD "midiOutShortMsg,@83")
-#pragma comment(linker, "/EXPORT:midiOutUnprepareHeader=" KM_FWD "midiOutUnprepareHeader,@84")
-#pragma comment(linker, "/EXPORT:midiStreamClose=" KM_FWD "midiStreamClose,@85")
-#pragma comment(linker, "/EXPORT:midiStreamOpen=" KM_FWD "midiStreamOpen,@86")
-#pragma comment(linker, "/EXPORT:midiStreamOut=" KM_FWD "midiStreamOut,@87")
-#pragma comment(linker, "/EXPORT:midiStreamPause=" KM_FWD "midiStreamPause,@88")
-#pragma comment(linker, "/EXPORT:midiStreamPosition=" KM_FWD "midiStreamPosition,@89")
-#pragma comment(linker, "/EXPORT:midiStreamProperty=" KM_FWD "midiStreamProperty,@90")
-#pragma comment(linker, "/EXPORT:midiStreamRestart=" KM_FWD "midiStreamRestart,@91")
-#pragma comment(linker, "/EXPORT:midiStreamStop=" KM_FWD "midiStreamStop,@92")
-#pragma comment(linker, "/EXPORT:mixerClose=" KM_FWD "mixerClose,@93")
-#pragma comment(linker, "/EXPORT:mixerGetControlDetailsA=" KM_FWD "mixerGetControlDetailsA,@94")
-#pragma comment(linker, "/EXPORT:mixerGetControlDetailsW=" KM_FWD "mixerGetControlDetailsW,@95")
-#pragma comment(linker, "/EXPORT:mixerGetDevCapsA=" KM_FWD "mixerGetDevCapsA,@96")
-#pragma comment(linker, "/EXPORT:mixerGetDevCapsW=" KM_FWD "mixerGetDevCapsW,@97")
-#pragma comment(linker, "/EXPORT:mixerGetID=" KM_FWD "mixerGetID,@98")
-#pragma comment(linker, "/EXPORT:mixerGetLineControlsA=" KM_FWD "mixerGetLineControlsA,@99")
-#pragma comment(linker, "/EXPORT:mixerGetLineControlsW=" KM_FWD "mixerGetLineControlsW,@100")
-#pragma comment(linker, "/EXPORT:mixerGetLineInfoA=" KM_FWD "mixerGetLineInfoA,@101")
-#pragma comment(linker, "/EXPORT:mixerGetLineInfoW=" KM_FWD "mixerGetLineInfoW,@102")
-#pragma comment(linker, "/EXPORT:mixerGetNumDevs=" KM_FWD "mixerGetNumDevs,@103")
-#pragma comment(linker, "/EXPORT:mixerMessage=" KM_FWD "mixerMessage,@104")
-#pragma comment(linker, "/EXPORT:mixerOpen=" KM_FWD "mixerOpen,@105")
-#pragma comment(linker, "/EXPORT:mixerSetControlDetails=" KM_FWD "mixerSetControlDetails,@106")
-#pragma comment(linker, "/EXPORT:mmDrvInstall=" KM_FWD "mmDrvInstall,@107")
-#pragma comment(linker, "/EXPORT:mmGetCurrentTask=" KM_FWD "mmGetCurrentTask,@108")
-#pragma comment(linker, "/EXPORT:mmTaskBlock=" KM_FWD "mmTaskBlock,@109")
-#pragma comment(linker, "/EXPORT:mmTaskCreate=" KM_FWD "mmTaskCreate,@110")
-#pragma comment(linker, "/EXPORT:mmTaskSignal=" KM_FWD "mmTaskSignal,@111")
-#pragma comment(linker, "/EXPORT:mmTaskYield=" KM_FWD "mmTaskYield,@112")
-#pragma comment(linker, "/EXPORT:mmioAdvance=" KM_FWD "mmioAdvance,@113")
-#pragma comment(linker, "/EXPORT:mmioAscend=" KM_FWD "mmioAscend,@114")
-#pragma comment(linker, "/EXPORT:mmioClose=" KM_FWD "mmioClose,@115")
-#pragma comment(linker, "/EXPORT:mmioCreateChunk=" KM_FWD "mmioCreateChunk,@116")
-#pragma comment(linker, "/EXPORT:mmioDescend=" KM_FWD "mmioDescend,@117")
-#pragma comment(linker, "/EXPORT:mmioFlush=" KM_FWD "mmioFlush,@118")
-#pragma comment(linker, "/EXPORT:mmioGetInfo=" KM_FWD "mmioGetInfo,@119")
-#pragma comment(linker, "/EXPORT:mmioInstallIOProcA=" KM_FWD "mmioInstallIOProcA,@120")
-#pragma comment(linker, "/EXPORT:mmioInstallIOProcW=" KM_FWD "mmioInstallIOProcW,@121")
-#pragma comment(linker, "/EXPORT:mmioOpenA=" KM_FWD "mmioOpenA,@122")
-#pragma comment(linker, "/EXPORT:mmioOpenW=" KM_FWD "mmioOpenW,@123")
-#pragma comment(linker, "/EXPORT:mmioRead=" KM_FWD "mmioRead,@124")
-#pragma comment(linker, "/EXPORT:mmioRenameA=" KM_FWD "mmioRenameA,@125")
-#pragma comment(linker, "/EXPORT:mmioRenameW=" KM_FWD "mmioRenameW,@126")
-#pragma comment(linker, "/EXPORT:mmioSeek=" KM_FWD "mmioSeek,@127")
-#pragma comment(linker, "/EXPORT:mmioSendMessage=" KM_FWD "mmioSendMessage,@128")
-#pragma comment(linker, "/EXPORT:mmioSetBuffer=" KM_FWD "mmioSetBuffer,@129")
-#pragma comment(linker, "/EXPORT:mmioSetInfo=" KM_FWD "mmioSetInfo,@130")
-#pragma comment(linker, "/EXPORT:mmioStringToFOURCCA=" KM_FWD "mmioStringToFOURCCA,@131")
-#pragma comment(linker, "/EXPORT:mmioStringToFOURCCW=" KM_FWD "mmioStringToFOURCCW,@132")
-#pragma comment(linker, "/EXPORT:mmioWrite=" KM_FWD "mmioWrite,@133")
-#pragma comment(linker, "/EXPORT:mmsystemGetVersion=" KM_FWD "mmsystemGetVersion,@134")
-#pragma comment(linker, "/EXPORT:sndPlaySoundA=" KM_FWD "sndPlaySoundA,@135")
-#pragma comment(linker, "/EXPORT:sndPlaySoundW=" KM_FWD "sndPlaySoundW,@136")
-#pragma comment(linker, "/EXPORT:timeBeginPeriod=" KM_FWD "timeBeginPeriod,@137")
-#pragma comment(linker, "/EXPORT:timeEndPeriod=" KM_FWD "timeEndPeriod,@138")
-#pragma comment(linker, "/EXPORT:timeGetDevCaps=" KM_FWD "timeGetDevCaps,@139")
-#pragma comment(linker, "/EXPORT:timeGetSystemTime=" KM_FWD "timeGetSystemTime,@140")
-#pragma comment(linker, "/EXPORT:timeGetTime=" KM_FWD "timeGetTime,@141")
-#pragma comment(linker, "/EXPORT:timeKillEvent=" KM_FWD "timeKillEvent,@142")
-#pragma comment(linker, "/EXPORT:timeSetEvent=" KM_FWD "timeSetEvent,@143")
-#pragma comment(linker, "/EXPORT:waveInAddBuffer=" KM_FWD "waveInAddBuffer,@144")
-#pragma comment(linker, "/EXPORT:waveInClose=" KM_FWD "waveInClose,@145")
-#pragma comment(linker, "/EXPORT:waveInGetDevCapsA=" KM_FWD "waveInGetDevCapsA,@146")
-#pragma comment(linker, "/EXPORT:waveInGetDevCapsW=" KM_FWD "waveInGetDevCapsW,@147")
-#pragma comment(linker, "/EXPORT:waveInGetErrorTextA=" KM_FWD "waveInGetErrorTextA,@148")
-#pragma comment(linker, "/EXPORT:waveInGetErrorTextW=" KM_FWD "waveInGetErrorTextW,@149")
-#pragma comment(linker, "/EXPORT:waveInGetID=" KM_FWD "waveInGetID,@150")
-#pragma comment(linker, "/EXPORT:waveInGetNumDevs=" KM_FWD "waveInGetNumDevs,@151")
-#pragma comment(linker, "/EXPORT:waveInGetPosition=" KM_FWD "waveInGetPosition,@152")
-#pragma comment(linker, "/EXPORT:waveInMessage=" KM_FWD "waveInMessage,@153")
-#pragma comment(linker, "/EXPORT:waveInOpen=" KM_FWD "waveInOpen,@154")
-#pragma comment(linker, "/EXPORT:waveInPrepareHeader=" KM_FWD "waveInPrepareHeader,@155")
-#pragma comment(linker, "/EXPORT:waveInReset=" KM_FWD "waveInReset,@156")
-#pragma comment(linker, "/EXPORT:waveInStart=" KM_FWD "waveInStart,@157")
-#pragma comment(linker, "/EXPORT:waveInStop=" KM_FWD "waveInStop,@158")
-#pragma comment(linker, "/EXPORT:waveInUnprepareHeader=" KM_FWD "waveInUnprepareHeader,@159")
-#pragma comment(linker, "/EXPORT:waveOutBreakLoop=" KM_FWD "waveOutBreakLoop,@160")
-#pragma comment(linker, "/EXPORT:waveOutClose=" KM_FWD "waveOutClose,@161")
-#pragma comment(linker, "/EXPORT:waveOutGetDevCapsA=" KM_FWD "waveOutGetDevCapsA,@162")
-#pragma comment(linker, "/EXPORT:waveOutGetDevCapsW=" KM_FWD "waveOutGetDevCapsW,@163")
-#pragma comment(linker, "/EXPORT:waveOutGetErrorTextA=" KM_FWD "waveOutGetErrorTextA,@164")
-#pragma comment(linker, "/EXPORT:waveOutGetErrorTextW=" KM_FWD "waveOutGetErrorTextW,@165")
-#pragma comment(linker, "/EXPORT:waveOutGetID=" KM_FWD "waveOutGetID,@166")
-#pragma comment(linker, "/EXPORT:waveOutGetNumDevs=" KM_FWD "waveOutGetNumDevs,@167")
-#pragma comment(linker, "/EXPORT:waveOutGetPitch=" KM_FWD "waveOutGetPitch,@168")
-#pragma comment(linker, "/EXPORT:waveOutGetPlaybackRate=" KM_FWD "waveOutGetPlaybackRate,@169")
-#pragma comment(linker, "/EXPORT:waveOutGetPosition=" KM_FWD "waveOutGetPosition,@170")
-#pragma comment(linker, "/EXPORT:waveOutGetVolume=" KM_FWD "waveOutGetVolume,@171")
-#pragma comment(linker, "/EXPORT:waveOutMessage=" KM_FWD "waveOutMessage,@172")
-#pragma comment(linker, "/EXPORT:waveOutOpen=" KM_FWD "waveOutOpen,@173")
-#pragma comment(linker, "/EXPORT:waveOutPause=" KM_FWD "waveOutPause,@174")
-#pragma comment(linker, "/EXPORT:waveOutPrepareHeader=" KM_FWD "waveOutPrepareHeader,@175")
-#pragma comment(linker, "/EXPORT:waveOutReset=" KM_FWD "waveOutReset,@176")
-#pragma comment(linker, "/EXPORT:waveOutRestart=" KM_FWD "waveOutRestart,@177")
-#pragma comment(linker, "/EXPORT:waveOutSetPitch=" KM_FWD "waveOutSetPitch,@178")
-#pragma comment(linker, "/EXPORT:waveOutSetPlaybackRate=" KM_FWD "waveOutSetPlaybackRate,@179")
-#pragma comment(linker, "/EXPORT:waveOutSetVolume=" KM_FWD "waveOutSetVolume,@180")
-#pragma comment(linker, "/EXPORT:waveOutUnprepareHeader=" KM_FWD "waveOutUnprepareHeader,@181")
-#pragma comment(linker, "/EXPORT:waveOutWrite=" KM_FWD "waveOutWrite,@182")
-#pragma comment(linker, "/EXPORT:KmOrdinal2=" KM_FWD "#2,@2,NONAME")
+inline constexpr int kWinmmCount = 181;
+extern "C" void* g_kmWinmm[kWinmmCount]; // filled in DllMain, read by the stubs
+
+// What each stub imports from the real DLL: a name, or "#n" for an export that only has an ordinal.
+inline const char* const kWinmmImports[kWinmmCount] = {
+    "CloseDriver",
+    "DefDriverProc",
+    "DriverCallback",
+    "DrvGetModuleHandle",
+    "GetDriverModuleHandle",
+    "OpenDriver",
+    "PlaySound",
+    "PlaySoundA",
+    "PlaySoundW",
+    "SendDriverMessage",
+    "WOWAppExit",
+    "auxGetDevCapsA",
+    "auxGetDevCapsW",
+    "auxGetNumDevs",
+    "auxGetVolume",
+    "auxOutMessage",
+    "auxSetVolume",
+    "joyConfigChanged",
+    "joyGetDevCapsA",
+    "joyGetDevCapsW",
+    "joyGetNumDevs",
+    "joyGetPos",
+    "joyGetPosEx",
+    "joyGetThreshold",
+    "joyReleaseCapture",
+    "joySetCapture",
+    "joySetThreshold",
+    "mciDriverNotify",
+    "mciDriverYield",
+    "mciExecute",
+    "mciFreeCommandResource",
+    "mciGetCreatorTask",
+    "mciGetDeviceIDA",
+    "mciGetDeviceIDFromElementIDA",
+    "mciGetDeviceIDFromElementIDW",
+    "mciGetDeviceIDW",
+    "mciGetDriverData",
+    "mciGetErrorStringA",
+    "mciGetErrorStringW",
+    "mciGetYieldProc",
+    "mciLoadCommandResource",
+    "mciSendCommandA",
+    "mciSendCommandW",
+    "mciSendStringA",
+    "mciSendStringW",
+    "mciSetDriverData",
+    "mciSetYieldProc",
+    "midiConnect",
+    "midiDisconnect",
+    "midiInAddBuffer",
+    "midiInClose",
+    "midiInGetDevCapsA",
+    "midiInGetDevCapsW",
+    "midiInGetErrorTextA",
+    "midiInGetErrorTextW",
+    "midiInGetID",
+    "midiInGetNumDevs",
+    "midiInMessage",
+    "midiInOpen",
+    "midiInPrepareHeader",
+    "midiInReset",
+    "midiInStart",
+    "midiInStop",
+    "midiInUnprepareHeader",
+    "midiOutCacheDrumPatches",
+    "midiOutCachePatches",
+    "midiOutClose",
+    "midiOutGetDevCapsA",
+    "midiOutGetDevCapsW",
+    "midiOutGetErrorTextA",
+    "midiOutGetErrorTextW",
+    "midiOutGetID",
+    "midiOutGetNumDevs",
+    "midiOutGetVolume",
+    "midiOutLongMsg",
+    "midiOutMessage",
+    "midiOutOpen",
+    "midiOutPrepareHeader",
+    "midiOutReset",
+    "midiOutSetVolume",
+    "midiOutShortMsg",
+    "midiOutUnprepareHeader",
+    "midiStreamClose",
+    "midiStreamOpen",
+    "midiStreamOut",
+    "midiStreamPause",
+    "midiStreamPosition",
+    "midiStreamProperty",
+    "midiStreamRestart",
+    "midiStreamStop",
+    "mixerClose",
+    "mixerGetControlDetailsA",
+    "mixerGetControlDetailsW",
+    "mixerGetDevCapsA",
+    "mixerGetDevCapsW",
+    "mixerGetID",
+    "mixerGetLineControlsA",
+    "mixerGetLineControlsW",
+    "mixerGetLineInfoA",
+    "mixerGetLineInfoW",
+    "mixerGetNumDevs",
+    "mixerMessage",
+    "mixerOpen",
+    "mixerSetControlDetails",
+    "mmDrvInstall",
+    "mmGetCurrentTask",
+    "mmTaskBlock",
+    "mmTaskCreate",
+    "mmTaskSignal",
+    "mmTaskYield",
+    "mmioAdvance",
+    "mmioAscend",
+    "mmioClose",
+    "mmioCreateChunk",
+    "mmioDescend",
+    "mmioFlush",
+    "mmioGetInfo",
+    "mmioInstallIOProcA",
+    "mmioInstallIOProcW",
+    "mmioOpenA",
+    "mmioOpenW",
+    "mmioRead",
+    "mmioRenameA",
+    "mmioRenameW",
+    "mmioSeek",
+    "mmioSendMessage",
+    "mmioSetBuffer",
+    "mmioSetInfo",
+    "mmioStringToFOURCCA",
+    "mmioStringToFOURCCW",
+    "mmioWrite",
+    "mmsystemGetVersion",
+    "sndPlaySoundA",
+    "sndPlaySoundW",
+    "timeBeginPeriod",
+    "timeEndPeriod",
+    "timeGetDevCaps",
+    "timeGetSystemTime",
+    "timeGetTime",
+    "timeKillEvent",
+    "timeSetEvent",
+    "waveInAddBuffer",
+    "waveInClose",
+    "waveInGetDevCapsA",
+    "waveInGetDevCapsW",
+    "waveInGetErrorTextA",
+    "waveInGetErrorTextW",
+    "waveInGetID",
+    "waveInGetNumDevs",
+    "waveInGetPosition",
+    "waveInMessage",
+    "waveInOpen",
+    "waveInPrepareHeader",
+    "waveInReset",
+    "waveInStart",
+    "waveInStop",
+    "waveInUnprepareHeader",
+    "waveOutBreakLoop",
+    "waveOutClose",
+    "waveOutGetDevCapsA",
+    "waveOutGetDevCapsW",
+    "waveOutGetErrorTextA",
+    "waveOutGetErrorTextW",
+    "waveOutGetID",
+    "waveOutGetNumDevs",
+    "waveOutGetPitch",
+    "waveOutGetPlaybackRate",
+    "waveOutGetPosition",
+    "waveOutGetVolume",
+    "waveOutMessage",
+    "waveOutOpen",
+    "waveOutPause",
+    "waveOutPrepareHeader",
+    "waveOutReset",
+    "waveOutRestart",
+    "waveOutSetPitch",
+    "waveOutSetPlaybackRate",
+    "waveOutSetVolume",
+    "waveOutUnprepareHeader",
+    "waveOutWrite",
+    "#2",
+};
+
+#pragma comment(linker, "/EXPORT:CloseDriver=KmStub0,@4")
+#pragma comment(linker, "/EXPORT:DefDriverProc=KmStub1,@5")
+#pragma comment(linker, "/EXPORT:DriverCallback=KmStub2,@6")
+#pragma comment(linker, "/EXPORT:DrvGetModuleHandle=KmStub3,@7")
+#pragma comment(linker, "/EXPORT:GetDriverModuleHandle=KmStub4,@8")
+#pragma comment(linker, "/EXPORT:OpenDriver=KmStub5,@9")
+#pragma comment(linker, "/EXPORT:PlaySound=KmStub6,@10")
+#pragma comment(linker, "/EXPORT:PlaySoundA=KmStub7,@11")
+#pragma comment(linker, "/EXPORT:PlaySoundW=KmStub8,@12")
+#pragma comment(linker, "/EXPORT:SendDriverMessage=KmStub9,@13")
+#pragma comment(linker, "/EXPORT:WOWAppExit=KmStub10,@14")
+#pragma comment(linker, "/EXPORT:auxGetDevCapsA=KmStub11,@15")
+#pragma comment(linker, "/EXPORT:auxGetDevCapsW=KmStub12,@16")
+#pragma comment(linker, "/EXPORT:auxGetNumDevs=KmStub13,@17")
+#pragma comment(linker, "/EXPORT:auxGetVolume=KmStub14,@18")
+#pragma comment(linker, "/EXPORT:auxOutMessage=KmStub15,@19")
+#pragma comment(linker, "/EXPORT:auxSetVolume=KmStub16,@20")
+#pragma comment(linker, "/EXPORT:joyConfigChanged=KmStub17,@21")
+#pragma comment(linker, "/EXPORT:joyGetDevCapsA=KmStub18,@22")
+#pragma comment(linker, "/EXPORT:joyGetDevCapsW=KmStub19,@23")
+#pragma comment(linker, "/EXPORT:joyGetNumDevs=KmStub20,@24")
+#pragma comment(linker, "/EXPORT:joyGetPos=KmStub21,@25")
+#pragma comment(linker, "/EXPORT:joyGetPosEx=KmStub22,@26")
+#pragma comment(linker, "/EXPORT:joyGetThreshold=KmStub23,@27")
+#pragma comment(linker, "/EXPORT:joyReleaseCapture=KmStub24,@28")
+#pragma comment(linker, "/EXPORT:joySetCapture=KmStub25,@29")
+#pragma comment(linker, "/EXPORT:joySetThreshold=KmStub26,@30")
+#pragma comment(linker, "/EXPORT:mciDriverNotify=KmStub27,@31")
+#pragma comment(linker, "/EXPORT:mciDriverYield=KmStub28,@32")
+#pragma comment(linker, "/EXPORT:mciExecute=KmStub29,@3")
+#pragma comment(linker, "/EXPORT:mciFreeCommandResource=KmStub30,@33")
+#pragma comment(linker, "/EXPORT:mciGetCreatorTask=KmStub31,@34")
+#pragma comment(linker, "/EXPORT:mciGetDeviceIDA=KmStub32,@35")
+#pragma comment(linker, "/EXPORT:mciGetDeviceIDFromElementIDA=KmStub33,@36")
+#pragma comment(linker, "/EXPORT:mciGetDeviceIDFromElementIDW=KmStub34,@37")
+#pragma comment(linker, "/EXPORT:mciGetDeviceIDW=KmStub35,@38")
+#pragma comment(linker, "/EXPORT:mciGetDriverData=KmStub36,@39")
+#pragma comment(linker, "/EXPORT:mciGetErrorStringA=KmStub37,@40")
+#pragma comment(linker, "/EXPORT:mciGetErrorStringW=KmStub38,@41")
+#pragma comment(linker, "/EXPORT:mciGetYieldProc=KmStub39,@42")
+#pragma comment(linker, "/EXPORT:mciLoadCommandResource=KmStub40,@43")
+#pragma comment(linker, "/EXPORT:mciSendCommandA=KmStub41,@44")
+#pragma comment(linker, "/EXPORT:mciSendCommandW=KmStub42,@45")
+#pragma comment(linker, "/EXPORT:mciSendStringA=KmStub43,@46")
+#pragma comment(linker, "/EXPORT:mciSendStringW=KmStub44,@47")
+#pragma comment(linker, "/EXPORT:mciSetDriverData=KmStub45,@48")
+#pragma comment(linker, "/EXPORT:mciSetYieldProc=KmStub46,@49")
+#pragma comment(linker, "/EXPORT:midiConnect=KmStub47,@50")
+#pragma comment(linker, "/EXPORT:midiDisconnect=KmStub48,@51")
+#pragma comment(linker, "/EXPORT:midiInAddBuffer=KmStub49,@52")
+#pragma comment(linker, "/EXPORT:midiInClose=KmStub50,@53")
+#pragma comment(linker, "/EXPORT:midiInGetDevCapsA=KmStub51,@54")
+#pragma comment(linker, "/EXPORT:midiInGetDevCapsW=KmStub52,@55")
+#pragma comment(linker, "/EXPORT:midiInGetErrorTextA=KmStub53,@56")
+#pragma comment(linker, "/EXPORT:midiInGetErrorTextW=KmStub54,@57")
+#pragma comment(linker, "/EXPORT:midiInGetID=KmStub55,@58")
+#pragma comment(linker, "/EXPORT:midiInGetNumDevs=KmStub56,@59")
+#pragma comment(linker, "/EXPORT:midiInMessage=KmStub57,@60")
+#pragma comment(linker, "/EXPORT:midiInOpen=KmStub58,@61")
+#pragma comment(linker, "/EXPORT:midiInPrepareHeader=KmStub59,@62")
+#pragma comment(linker, "/EXPORT:midiInReset=KmStub60,@63")
+#pragma comment(linker, "/EXPORT:midiInStart=KmStub61,@64")
+#pragma comment(linker, "/EXPORT:midiInStop=KmStub62,@65")
+#pragma comment(linker, "/EXPORT:midiInUnprepareHeader=KmStub63,@66")
+#pragma comment(linker, "/EXPORT:midiOutCacheDrumPatches=KmStub64,@67")
+#pragma comment(linker, "/EXPORT:midiOutCachePatches=KmStub65,@68")
+#pragma comment(linker, "/EXPORT:midiOutClose=KmStub66,@69")
+#pragma comment(linker, "/EXPORT:midiOutGetDevCapsA=KmStub67,@70")
+#pragma comment(linker, "/EXPORT:midiOutGetDevCapsW=KmStub68,@71")
+#pragma comment(linker, "/EXPORT:midiOutGetErrorTextA=KmStub69,@72")
+#pragma comment(linker, "/EXPORT:midiOutGetErrorTextW=KmStub70,@73")
+#pragma comment(linker, "/EXPORT:midiOutGetID=KmStub71,@74")
+#pragma comment(linker, "/EXPORT:midiOutGetNumDevs=KmStub72,@75")
+#pragma comment(linker, "/EXPORT:midiOutGetVolume=KmStub73,@76")
+#pragma comment(linker, "/EXPORT:midiOutLongMsg=KmStub74,@77")
+#pragma comment(linker, "/EXPORT:midiOutMessage=KmStub75,@78")
+#pragma comment(linker, "/EXPORT:midiOutOpen=KmStub76,@79")
+#pragma comment(linker, "/EXPORT:midiOutPrepareHeader=KmStub77,@80")
+#pragma comment(linker, "/EXPORT:midiOutReset=KmStub78,@81")
+#pragma comment(linker, "/EXPORT:midiOutSetVolume=KmStub79,@82")
+#pragma comment(linker, "/EXPORT:midiOutShortMsg=KmStub80,@83")
+#pragma comment(linker, "/EXPORT:midiOutUnprepareHeader=KmStub81,@84")
+#pragma comment(linker, "/EXPORT:midiStreamClose=KmStub82,@85")
+#pragma comment(linker, "/EXPORT:midiStreamOpen=KmStub83,@86")
+#pragma comment(linker, "/EXPORT:midiStreamOut=KmStub84,@87")
+#pragma comment(linker, "/EXPORT:midiStreamPause=KmStub85,@88")
+#pragma comment(linker, "/EXPORT:midiStreamPosition=KmStub86,@89")
+#pragma comment(linker, "/EXPORT:midiStreamProperty=KmStub87,@90")
+#pragma comment(linker, "/EXPORT:midiStreamRestart=KmStub88,@91")
+#pragma comment(linker, "/EXPORT:midiStreamStop=KmStub89,@92")
+#pragma comment(linker, "/EXPORT:mixerClose=KmStub90,@93")
+#pragma comment(linker, "/EXPORT:mixerGetControlDetailsA=KmStub91,@94")
+#pragma comment(linker, "/EXPORT:mixerGetControlDetailsW=KmStub92,@95")
+#pragma comment(linker, "/EXPORT:mixerGetDevCapsA=KmStub93,@96")
+#pragma comment(linker, "/EXPORT:mixerGetDevCapsW=KmStub94,@97")
+#pragma comment(linker, "/EXPORT:mixerGetID=KmStub95,@98")
+#pragma comment(linker, "/EXPORT:mixerGetLineControlsA=KmStub96,@99")
+#pragma comment(linker, "/EXPORT:mixerGetLineControlsW=KmStub97,@100")
+#pragma comment(linker, "/EXPORT:mixerGetLineInfoA=KmStub98,@101")
+#pragma comment(linker, "/EXPORT:mixerGetLineInfoW=KmStub99,@102")
+#pragma comment(linker, "/EXPORT:mixerGetNumDevs=KmStub100,@103")
+#pragma comment(linker, "/EXPORT:mixerMessage=KmStub101,@104")
+#pragma comment(linker, "/EXPORT:mixerOpen=KmStub102,@105")
+#pragma comment(linker, "/EXPORT:mixerSetControlDetails=KmStub103,@106")
+#pragma comment(linker, "/EXPORT:mmDrvInstall=KmStub104,@107")
+#pragma comment(linker, "/EXPORT:mmGetCurrentTask=KmStub105,@108")
+#pragma comment(linker, "/EXPORT:mmTaskBlock=KmStub106,@109")
+#pragma comment(linker, "/EXPORT:mmTaskCreate=KmStub107,@110")
+#pragma comment(linker, "/EXPORT:mmTaskSignal=KmStub108,@111")
+#pragma comment(linker, "/EXPORT:mmTaskYield=KmStub109,@112")
+#pragma comment(linker, "/EXPORT:mmioAdvance=KmStub110,@113")
+#pragma comment(linker, "/EXPORT:mmioAscend=KmStub111,@114")
+#pragma comment(linker, "/EXPORT:mmioClose=KmStub112,@115")
+#pragma comment(linker, "/EXPORT:mmioCreateChunk=KmStub113,@116")
+#pragma comment(linker, "/EXPORT:mmioDescend=KmStub114,@117")
+#pragma comment(linker, "/EXPORT:mmioFlush=KmStub115,@118")
+#pragma comment(linker, "/EXPORT:mmioGetInfo=KmStub116,@119")
+#pragma comment(linker, "/EXPORT:mmioInstallIOProcA=KmStub117,@120")
+#pragma comment(linker, "/EXPORT:mmioInstallIOProcW=KmStub118,@121")
+#pragma comment(linker, "/EXPORT:mmioOpenA=KmStub119,@122")
+#pragma comment(linker, "/EXPORT:mmioOpenW=KmStub120,@123")
+#pragma comment(linker, "/EXPORT:mmioRead=KmStub121,@124")
+#pragma comment(linker, "/EXPORT:mmioRenameA=KmStub122,@125")
+#pragma comment(linker, "/EXPORT:mmioRenameW=KmStub123,@126")
+#pragma comment(linker, "/EXPORT:mmioSeek=KmStub124,@127")
+#pragma comment(linker, "/EXPORT:mmioSendMessage=KmStub125,@128")
+#pragma comment(linker, "/EXPORT:mmioSetBuffer=KmStub126,@129")
+#pragma comment(linker, "/EXPORT:mmioSetInfo=KmStub127,@130")
+#pragma comment(linker, "/EXPORT:mmioStringToFOURCCA=KmStub128,@131")
+#pragma comment(linker, "/EXPORT:mmioStringToFOURCCW=KmStub129,@132")
+#pragma comment(linker, "/EXPORT:mmioWrite=KmStub130,@133")
+#pragma comment(linker, "/EXPORT:mmsystemGetVersion=KmStub131,@134")
+#pragma comment(linker, "/EXPORT:sndPlaySoundA=KmStub132,@135")
+#pragma comment(linker, "/EXPORT:sndPlaySoundW=KmStub133,@136")
+#pragma comment(linker, "/EXPORT:timeBeginPeriod=KmStub134,@137")
+#pragma comment(linker, "/EXPORT:timeEndPeriod=KmStub135,@138")
+#pragma comment(linker, "/EXPORT:timeGetDevCaps=KmStub136,@139")
+#pragma comment(linker, "/EXPORT:timeGetSystemTime=KmStub137,@140")
+#pragma comment(linker, "/EXPORT:timeGetTime=KmStub138,@141")
+#pragma comment(linker, "/EXPORT:timeKillEvent=KmStub139,@142")
+#pragma comment(linker, "/EXPORT:timeSetEvent=KmStub140,@143")
+#pragma comment(linker, "/EXPORT:waveInAddBuffer=KmStub141,@144")
+#pragma comment(linker, "/EXPORT:waveInClose=KmStub142,@145")
+#pragma comment(linker, "/EXPORT:waveInGetDevCapsA=KmStub143,@146")
+#pragma comment(linker, "/EXPORT:waveInGetDevCapsW=KmStub144,@147")
+#pragma comment(linker, "/EXPORT:waveInGetErrorTextA=KmStub145,@148")
+#pragma comment(linker, "/EXPORT:waveInGetErrorTextW=KmStub146,@149")
+#pragma comment(linker, "/EXPORT:waveInGetID=KmStub147,@150")
+#pragma comment(linker, "/EXPORT:waveInGetNumDevs=KmStub148,@151")
+#pragma comment(linker, "/EXPORT:waveInGetPosition=KmStub149,@152")
+#pragma comment(linker, "/EXPORT:waveInMessage=KmStub150,@153")
+#pragma comment(linker, "/EXPORT:waveInOpen=KmStub151,@154")
+#pragma comment(linker, "/EXPORT:waveInPrepareHeader=KmStub152,@155")
+#pragma comment(linker, "/EXPORT:waveInReset=KmStub153,@156")
+#pragma comment(linker, "/EXPORT:waveInStart=KmStub154,@157")
+#pragma comment(linker, "/EXPORT:waveInStop=KmStub155,@158")
+#pragma comment(linker, "/EXPORT:waveInUnprepareHeader=KmStub156,@159")
+#pragma comment(linker, "/EXPORT:waveOutBreakLoop=KmStub157,@160")
+#pragma comment(linker, "/EXPORT:waveOutClose=KmStub158,@161")
+#pragma comment(linker, "/EXPORT:waveOutGetDevCapsA=KmStub159,@162")
+#pragma comment(linker, "/EXPORT:waveOutGetDevCapsW=KmStub160,@163")
+#pragma comment(linker, "/EXPORT:waveOutGetErrorTextA=KmStub161,@164")
+#pragma comment(linker, "/EXPORT:waveOutGetErrorTextW=KmStub162,@165")
+#pragma comment(linker, "/EXPORT:waveOutGetID=KmStub163,@166")
+#pragma comment(linker, "/EXPORT:waveOutGetNumDevs=KmStub164,@167")
+#pragma comment(linker, "/EXPORT:waveOutGetPitch=KmStub165,@168")
+#pragma comment(linker, "/EXPORT:waveOutGetPlaybackRate=KmStub166,@169")
+#pragma comment(linker, "/EXPORT:waveOutGetPosition=KmStub167,@170")
+#pragma comment(linker, "/EXPORT:waveOutGetVolume=KmStub168,@171")
+#pragma comment(linker, "/EXPORT:waveOutMessage=KmStub169,@172")
+#pragma comment(linker, "/EXPORT:waveOutOpen=KmStub170,@173")
+#pragma comment(linker, "/EXPORT:waveOutPause=KmStub171,@174")
+#pragma comment(linker, "/EXPORT:waveOutPrepareHeader=KmStub172,@175")
+#pragma comment(linker, "/EXPORT:waveOutReset=KmStub173,@176")
+#pragma comment(linker, "/EXPORT:waveOutRestart=KmStub174,@177")
+#pragma comment(linker, "/EXPORT:waveOutSetPitch=KmStub175,@178")
+#pragma comment(linker, "/EXPORT:waveOutSetPlaybackRate=KmStub176,@179")
+#pragma comment(linker, "/EXPORT:waveOutSetVolume=KmStub177,@180")
+#pragma comment(linker, "/EXPORT:waveOutUnprepareHeader=KmStub178,@181")
+#pragma comment(linker, "/EXPORT:waveOutWrite=KmStub179,@182")
+#pragma comment(linker, "/EXPORT:KmOrdinal2=KmStub180,@2,NONAME")
