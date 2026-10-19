@@ -69,7 +69,7 @@ Clive Barker's Hellraiser - Revival\
 **Manual "extract to game folder":** use `KetamineMenu-vX.Y.Z-Nexus.zip` instead. It already contains the
 `Hellraiser\Binaries\Win64\` folders, so Vortex installs it in the right place, or you can extract it straight into the game folder.
 
-**Linux / Steam Deck (Proton):** Proton loads its own `winmm.dll` instead of the menu's. In Steam, right-click the game → **Properties** → **Launch Options** and add `WINEDLLOVERRIDES="winmm=n,b" %command%`.
+**Linux / Steam Deck (Proton):** Proton loads its own `winmm.dll` instead of the menu's. In Steam, right-click the game → **Properties** → **Launch Options** and add `WINEDLLOVERRIDES="winmm=n,b" %command%`. If you use other launch tools too (such as `~/lsfg` or `gamemoderun`), put them before `%command%`, for example `WINEDLLOVERRIDES="winmm=n,b" ~/lsfg %command%`. Don't use Decky Framegen (`~/fgmod/fgmod`) with the menu: it deletes `winmm.dll` at every launch.
 
 > [!TIP]
 > If <kbd>Insert</kbd> / <kbd>F8</kbd> do nothing, open `KetamineMenu.log` next to the DLL: it says exactly what was found and what wasn't.

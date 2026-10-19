@@ -69,7 +69,7 @@ Clive Barker's Hellraiser - Revival\
 **수동으로 "게임 폴더에 압축 풀기":** 대신 `KetamineMenu-vX.Y.Z-Nexus.zip`을 사용하세요. `Hellraiser\Binaries\Win64\` 폴더 구조가
 이미 들어 있어서 Vortex가 올바른 위치에 설치하며, 게임 폴더에 바로 압축을 풀어도 됩니다.
 
-**Linux / Steam Deck (Proton):** Proton은 메뉴의 `winmm.dll` 대신 자체 파일을 불러옵니다. Steam에서 게임을 우클릭 → **속성**(Properties) → **실행 옵션**(Launch Options)에 `WINEDLLOVERRIDES="winmm=n,b" %command%`를 추가하세요.
+**Linux / Steam Deck (Proton):** Proton은 메뉴의 `winmm.dll` 대신 자체 파일을 불러옵니다. Steam에서 게임을 우클릭 → **속성**(Properties) → **실행 옵션**(Launch Options)에 `WINEDLLOVERRIDES="winmm=n,b" %command%`를 추가하세요. 다른 실행 도구(`~/lsfg`, `gamemoderun` 등)도 쓴다면 `%command%` 앞에 넣으세요. 예: `WINEDLLOVERRIDES="winmm=n,b" ~/lsfg %command%`. Decky Framegen(`~/fgmod/fgmod`)은 실행할 때마다 `winmm.dll`을 삭제하므로 메뉴와 함께 쓸 수 없습니다.
 
 > [!TIP]
 > <kbd>Insert</kbd> / <kbd>F8</kbd>을 눌러도 아무 반응이 없다면 DLL 옆에 있는 `KetamineMenu.log`를 열어 보세요. 무엇을 찾았고 무엇을 못 찾았는지 정확히 적혀 있습니다.

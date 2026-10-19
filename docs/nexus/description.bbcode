@@ -107,6 +107,9 @@ next to [i]Hellraiser-Win64-Shipping.exe[/i].
 [/list]
 [b]Linux / Steam Deck (Proton):[/b] Proton loads its own [i]winmm.dll[/i] instead of the menu's. In Steam, right-click the game → [i]Properties[/i] → [i]Launch Options[/i] and add:
 [code]WINEDLLOVERRIDES="winmm=n,b" %command%[/code]
+Other launch tools (such as [i]~/lsfg[/i] or [i]gamemoderun[/i]) go [b]before[/b] [i]%command%[/i], for example:
+[code]WINEDLLOVERRIDES="winmm=n,b" ~/lsfg %command%[/code]
+[b]Don't use Decky Framegen[/b] ([i]~/fgmod/fgmod[/i]) with the menu: it deletes winmm.dll at every launch.
 
 [size=4][b][color=#AC6EE2]Before you play[/color][/b][/size]
 [list]
