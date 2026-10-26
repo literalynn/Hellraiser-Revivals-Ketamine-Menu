@@ -87,16 +87,6 @@ constexpr uint8_t SlateHidden = 2, SlateCollapsed = 1;
 std::mutex g_snapMutex;
 Snapshot g_snap;
 
-// A give that dropped items: copies beyond the asked amount are removed, also those the game spawns a moment later.
-struct DropWatch {
-    UObject* item;
-    std::string name;
-    std::vector<UObject*> lying, kept; // pickups there before the give / the ones we leave on the ground
-    int keep, removed = 0;
-    uint64_t until;
-    Vec3 at; // where the player stood: only pickups within 5 m of it are ours
-};
-
 // Game-thread state.
 struct State {
     Weak pc, player, attrs, cmc, cheat, objectives;
@@ -106,8 +96,6 @@ struct State {
     bool introsDone = false;
     bool aimHooked = false, aimFailed = false;
     bool viewLogged = false, viewFallbackLogged = false;
-    std::vector<DropWatch> dropWatch;
-    uint64_t dropAt = 0;
     std::map<std::string, Weak> cdo;
     std::map<std::string, Weak> items;
     std::vector<Weak> enemies;
@@ -121,6 +109,7 @@ struct State {
     std::vector<std::pair<Weak, uint8_t>> hiddenWidgets;
     std::map<UObject*, std::pair<int32_t, float>> enemyHealth; // object index + last health seen, to measure damage
     Weak camera;                            // free camera actor
+    Weak camBack;                           // what the view was on before it (the game's own camera actor)
     Vec camPos{};
     uint64_t camAt = 0;
     float jumpZ = 0;
@@ -232,13 +221,23 @@ void MoveInput(UObject* player, const Vec& right, double& forwardAmount, double&
     rightAmount = in.x * right.x + in.y * right.y;
 }
 
-// Velocity that flies where the camera looks.
-Vec FlyVelocity(UObject* pc, UObject* player, float speed)
+// The flat right vector of an actor's facing.
+Vec FacingRight(UObject* actor)
+{
+    Call c(actor, "K2_GetActorRotation");
+    double y = c.Run() ? c.Out<Rot>("ReturnValue").yaw * kDegToRad : 0;
+    return {-std::sin(y), std::cos(y), 0};
+}
+
+// Velocity that flies where the camera looks. The game turns the keys into a direction from the character's facing:
+// the free camera leaves the character still, so there they're read against its facing (forward became backward once
+// the camera had turned around).
+Vec FlyVelocity(UObject* pc, UObject* player, float speed, bool characterStill = false)
 {
     Vec fwd, right;
     LookAxes(pc, fwd, right);
     double f, r;
-    MoveInput(player, right, f, r);
+    MoveInput(player, characterStill ? FacingRight(player) : right, f, r);
     return {(fwd.x * f + right.x * r) * speed, (fwd.y * f + right.y * r) * speed, fwd.z * f * speed};
 }
 
@@ -420,46 +419,6 @@ std::vector<UObject*> Pickables(UObject* item)
     return out;
 }
 
-// The watch for this item's drops, extended by 2 s: one per item, so quick repeated gives add up instead of each
-// removing the others' drops as extra copies.
-DropWatch& WatchDrops(UObject* item, const std::string& name, const std::vector<UObject*>& lying, Vec at)
-{
-    // 6 s: the first drop of an item can wait for its mesh to load before its copy appears.
-    uint64_t until = GetTickCount64() + 6000;
-    for (DropWatch& w : s.dropWatch)
-        if (w.item == item) {
-            w.until = until;
-            w.at = at;
-            return w;
-        }
-    s.dropWatch.push_back(DropWatch{item, name, lying, {}, 0, 0, until, at});
-    return s.dropWatch.back();
-}
-
-// A pickup the player can see: not hidden (hidden copies may be the game's own bookkeeping: left alone).
-// Not bItemIsActive: pickups lying in plain sight have it off.
-bool OnTheGround(UObject* p)
-{
-    bool hidden = false;
-    GetBool(p, "bHidden", &hidden);
-    return !hidden;
-}
-
-void TrimDrops(DropWatch& w)
-{
-    for (UObject* p : Pickables(w.item)) {
-        if (std::find(w.lying.begin(), w.lying.end(), p) != w.lying.end() ||
-            std::find(w.kept.begin(), w.kept.end(), p) != w.kept.end() || !OnTheGround(p))
-            continue;
-        double d = Distance(Location(p), w.at);
-        if (d > 500) continue; // not from this give (or still flying: looked at again next time)
-        bool keep = int(w.kept.size()) < w.keep;
-        if (keep) w.kept.push_back(p);
-        else if (Call(p, "K2_DestroyActor").Run()) w.removed++;
-        km::Log("Give %s: pickup %s %s (%.1f m away)", w.name.c_str(), Name(p).c_str(), keep ? "kept" : "removed", d / 100);
-    }
-}
-
 void RefreshEnemies(uint64_t now)
 {
     if (now - s.enemiesAt < 1000) return;
@@ -504,9 +463,18 @@ void ShowWidgets()
     s.hiddenWidgets.clear();
 }
 
+UObject* ViewTarget(UObject* pc)
+{
+    Call c(pc, "GetViewTarget");
+    return c.Run() ? c.Out<UObject*>("ReturnValue") : nullptr;
+}
+
 // Free camera: a camera actor we move ourselves while the player stays frozen in place.
+// The game doesn't look through the pawn but through its own camera actor (the pawn's FPCameraActor child): giving the
+// view to the pawn picked its cinematic camera instead (depth of field blur, no first-person body).
 void StartFreeCam(UObject* pc, UObject* player, uint64_t now)
 {
+    s.camBack = Weak(ViewTarget(pc));
     Transform t;
     t.pos = Location(player);
     t.pos.z += 60; // roughly eye height
@@ -518,7 +486,8 @@ void StartFreeCam(UObject* pc, UObject* player, uint64_t now)
         Call(pc, "SetViewTargetWithBlend").Arg(0, cam).Arg(1, 0.f).Arg(2, uint8_t(0)).Arg(3, 0.f).Arg(4, false).Run();
         Call(s.cmc.Get(), "DisableMovement").Run();
     }
-    km::Log("Free camera: %s", cam ? "on" : "camera actor could not be spawned");
+    km::Log("Free camera: %s (view was on %s)", cam ? "on" : "camera actor could not be spawned",
+            s.camBack.Get() ? Name(s.camBack.Get()).c_str() : "nothing");
     s.camera = Weak(cam);
     s.camPos = t.pos;
     s.camAt = now;
@@ -527,8 +496,11 @@ void StartFreeCam(UObject* pc, UObject* player, uint64_t now)
 void StopFreeCam(UObject* pc, UObject* player)
 {
     if (UObject* cam = s.camera.Get()) {
-        Call(pc, "SetViewTargetWithBlend").Arg(0, player).Arg(1, 0.f).Arg(2, uint8_t(0)).Arg(3, 0.f).Arg(4, false).Run();
+        UObject* back = s.camBack.Get() ? s.camBack.Get() : player;
+        if (ViewTarget(pc) == cam) // else the game moved the view itself meanwhile (a cutscene): leave it there
+            Call(pc, "SetViewTargetWithBlend").Arg(0, back).Arg(1, 0.f).Arg(2, uint8_t(0)).Arg(3, 0.f).Arg(4, false).Run();
         Call(cam, "K2_DestroyActor").Run();
+        km::Log("Free camera: off, view back on %s", Name(ViewTarget(pc)).c_str());
     }
     Call(s.cmc.Get(), "SetMovementMode").Arg(0, MOVE_Walking).Arg(1, uint8_t(0)).Run();
     s.camera = {};
@@ -540,7 +512,7 @@ void MoveFreeCam(UObject* pc, UObject* player, uint64_t now)
     if (!cam) return;
     double dt = std::min((now - s.camAt) / 1000.0, 0.1);
     s.camAt = now;
-    Vec v = FlyVelocity(pc, player, 1000.f * g_value[SpeedMult]);
+    Vec v = FlyVelocity(pc, player, 1000.f * g_value[SpeedMult], true);
     s.camPos = {s.camPos.x + v.x * dt, s.camPos.y + v.y * dt, s.camPos.z + v.z * dt};
     Vec fwd, right;
     Rot rot = LookAxes(pc, fwd, right);
@@ -1283,16 +1255,6 @@ void Tick()
         if (player) km::Log("Player found: %s", Name(player).c_str());
     }
 
-    if (!s.dropWatch.empty() && now - s.dropAt >= 100) {
-        s.dropAt = now;
-        for (DropWatch& w : s.dropWatch) TrimDrops(w);
-        std::erase_if(s.dropWatch, [&](const DropWatch& w) {
-            if (now < w.until) return false;
-            km::Log("Give %s: %zu left on the ground, %d extra copies removed", w.name.c_str(), w.kept.size(), w.removed);
-            return true;
-        });
-    }
-
     snap.player = player != nullptr;
     if (player) s.introsDone = true; // the intros only play before the first save is loaded
     TickIntros(now);
@@ -1412,73 +1374,80 @@ void FillSuffering()
     });
 }
 
+// A new item info for what's left to give: a whole stack, or one item. Null when the game won't make one.
+UObject* NewItemInfo(UObject* item, UObject* player, int& left)
+{
+    Call create(ItemManager(), "CreateAndInitializeItem");
+    UObject* info = create.Arg(0, item).Arg(1, player).Run() ? create.Out<UObject*>("ItemInfoRef") : nullptr;
+    if (!info) return nullptr;
+    int* stack = IsA(info, FindClass("ItemInfoStackable")) ? Member<int32_t>(info, "StackableCount") : nullptr;
+    if (stack) *stack = left;
+    left -= stack ? left : 1;
+    return info;
+}
+
+// Into the bag through the game's own add, what picking an item up runs (it tops up your stacks and the save): money,
+// and items the game doesn't drop. How many went in. Not the developers' give: it adds one less (1000 money gave 999).
+int AddToBag(UObject* item, UObject* player, int count)
+{
+    int before = ItemCount(item, true);
+    for (int i = 0, left = count; left > 0 && i < 50; i++)
+        if (UObject* info = NewItemInfo(item, player, left))
+            Call(ItemManager(), "AddItemInInventory").Arg(0, info).Arg(1, player).Arg(2, false).Arg(3, false).Arg(4, false).Run();
+        else
+            break;
+    return std::max(ItemCount(item, true) - before, 0);
+}
+
+// Gives by dropping the items at your feet, bag full or not: picking them up is then the game's own code (room,
+// limits, a gun you already have). Filling the bag ourselves went wrong: a give the full bag refused left a copy that
+// the next drop dropped too, and a gun you already had came back new, without its upgrades.
 void GiveItem(const std::string& name, int count)
 {
     OnGame([name, count](UObject* player) {
         UObject* item = FindItem(name);
         if (!item || count <= 0) return;
-        int before = ItemCount(item, true);
-        Call cheat(CheatManager(), "K2_GiveItem");
-        bool cheatRan = cheat && cheat.Arg(0, item).Arg(1, count).Run();
-        if (cheatRan) {
-            int after = ItemCount(item, true);
-            km::Log("Give %s x%d via cheat manager: %d -> %d", name.c_str(), count, before, after);
-            if (after > before) {
-                menu::Toast("+" + std::to_string(after - before) + "  " + Pretty(name));
-                return;
-            }
-            // Nothing added: no room (the developers' give then does nothing at all). Drop the items below.
-        }
-        // One item info per item (one for a stack). Without the cheat: the game's AddItemInInventory. When there's no
-        // room: the game's DropItem, or AddItemInInventory if that left nothing on the ground (it drops what doesn't
-        // fit, but some firearms twice). Every item that didn't go into the bag counts as one pickup to leave on the
-        // ground; any copy beyond that is removed (see DropWatch).
-        UObject* im = ItemManager();
-        UClass* stackable = FindClass("ItemInfoStackable");
         std::vector<UObject*> lying = Pickables(item);
-        DropWatch* watch = nullptr; // made on the first item that doesn't fit
-        int added = 0, dropped = 0;
-        bool created = false;
-        for (int i = 0, left = count; left > 0 && i < 50; i++) {
-            Call create(im, "CreateAndInitializeItem");
-            UObject* info = create.Arg(0, item).Arg(1, player).Run() ? create.Out<UObject*>("ItemInfoRef") : nullptr;
+        int left = count, drops = 0;
+        for (int i = 0; left > 0 && i < 50; i++) {
+            UObject* info = NewItemInfo(item, player, left);
             if (!info) break;
-            created = true;
-            int n = 1;
-            if (IsA(info, stackable)) {
-                n = left;
-                *Member<int32_t>(info, "StackableCount") = n;
-            }
-            left -= n;
-            int inBag = ItemCount(item, true);
-            size_t onGround = Pickables(item).size();
-            if (cheatRan) Call(im, "DropItem").Arg(0, info).Arg(1, player).Arg(2, true).Run();
-            if (!cheatRan || Pickables(item).size() == onGround)
-                Call(im, "AddItemInInventory").Arg(0, info).Arg(1, player).Arg(2, false).Arg(3, false).Arg(4, false).Run();
-            if (ItemCount(item, true) > inBag) {
-                added += n;
-                continue;
-            }
-            if (!watch) watch = &WatchDrops(item, name, lying, Location(player));
-            watch->keep++;
-            dropped += n;
+            // Ownerless, like the game's own drops (RemoveItemFromInventory): an owned item lying around counts in the
+            // game's item limits and gets dropped again when you pick up another copy.
+            if (auto* owner = Member<UObject*>(info, "Owner")) *owner = nullptr;
+            if (!Call(ItemManager(), "DropItem").Arg(0, info).Arg(1, player).Arg(2, true).Run()) break;
+            drops++;
         }
-        if (watch) TrimDrops(*watch);
-        km::Log("Give %s x%d via item manager: %d added, %d dropped (%d pickups kept, %d extra copies removed so far)",
-                name.c_str(), count, added, dropped, watch ? int(watch->kept.size()) : 0, watch ? watch->removed : 0);
-        if (added) menu::Toast("+" + std::to_string(added) + "  " + Pretty(name));
-        if (dropped) menu::Toast(lang::T("Inventory full: dropped at your feet"));
-        if (!created) {
-            char failed[160];
-            snprintf(failed, sizeof(failed), lang::T("Couldn't give %s"), Pretty(name).c_str());
-            menu::Toast(failed);
-        }
+        int dropped = count - left;
+        // One pickup per drop: any more that appeared meanwhile are copies (all new, so none is an item you had).
+        int fresh = 0, removed = 0;
+        for (UObject* p : Pickables(item))
+            if (std::find(lying.begin(), lying.end(), p) == lying.end() && ++fresh > drops && Call(p, "K2_DestroyActor").Run())
+                removed++;
+        int added = fresh ? 0 : AddToBag(item, player, count); // no pickup at all: an item the game doesn't drop
+        km::Log("Give %s x%d: %d pickups dropped at your feet, %d extra copies removed, %d put in the bag", name.c_str(),
+                count, std::min(fresh, drops), removed, added);
+        char text[160];
+        std::string what = "+" + std::to_string(fresh ? dropped : added) + "  " + Pretty(name);
+        if (fresh) snprintf(text, sizeof(text), lang::T("%s: dropped at your feet"), what.c_str());
+        else if (added) snprintf(text, sizeof(text), "%s", what.c_str());
+        else snprintf(text, sizeof(text), lang::T("Couldn't give %s"), Pretty(name).c_str());
+        menu::Toast(text);
     });
 }
 
 void AddMoney(int delta)
 {
-    if (delta > 0) return GiveItem("Item_Currency", delta);
+    if (delta > 0) return OnGame([delta](UObject* player) { // straight onto your money, never on the ground
+        UObject* currency = FindItem("Item_Currency");
+        if (!currency) return;
+        int added = AddToBag(currency, player, delta);
+        km::Log("Add money %d: %d added", delta, added);
+        char text[160];
+        if (added) snprintf(text, sizeof(text), "+%d  %s", added, Pretty("Item_Currency").c_str());
+        else snprintf(text, sizeof(text), lang::T("Couldn't give %s"), Pretty("Item_Currency").c_str());
+        menu::Toast(text);
+    });
     OnGame([delta](UObject* player) {
         UObject* currency = FindItem("Item_Currency");
         UObject* im = ItemManager();
